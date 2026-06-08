@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>World Cup 2026 Match Map</title>
+  <meta name="description" content="Interactive World Cup match map and knockout bracket." />
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">FIFA World Cup 2026</p>
+      <h1>Match Map & Knockout Tree</h1>
+      <p class="subhead">Explore matches by team, round, date, and stadium. Then switch tabs to follow the tournament bracket all the way to the final.</p>
+    </div>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <nav class="tabs" aria-label="Main tabs">
+    <button class="tab active" data-tab="mapTab">Interactive map</button>
+    <button class="tab" data-tab="bracketTab">Knockout tree</button>
+    <button class="tab" data-tab="dataTab">Data table</button>
+  </nav>
+
+  <main>
+    <section id="mapTab" class="panel active" aria-labelledby="map-tab">
+      <aside class="filters" aria-label="Match filters">
+        <label>
+          Team
+          <select id="teamFilter"><option value="all">All teams</option></select>
+        </label>
+        <label>
+          Round
+          <select id="roundFilter"><option value="all">All rounds</option></select>
+        </label>
+        <label>
+          Stadium
+          <select id="stadiumFilter"><option value="all">All stadiums</option></select>
+        </label>
+        <label>
+          Search
+          <input id="searchFilter" type="search" placeholder="team, city, match #..." />
+        </label>
+        <button id="resetFilters" class="secondary">Reset filters</button>
+      </aside>
+
+      <section class="map-layout">
+        <div id="map" role="application" aria-label="World Cup stadium map"></div>
+        <div class="match-list" id="matchList" aria-live="polite"></div>
+      </section>
+    </section>
+
+    <section id="bracketTab" class="panel" aria-labelledby="bracket-tab">
+      <div class="bracket-toolbar">
+        <h2>Knockout tree</h2>
+        <p>Fill results in <code>data.js</code>; winner placeholders automatically appear in the next rounds.</p>
+      </div>
+      <div class="bracket-scroll" id="bracket"></div>
+    </section>
+
+    <section id="dataTab" class="panel" aria-labelledby="data-tab">
+      <div class="table-wrap">
+        <table id="dataTable">
+          <thead>
+            <tr>
+              <th>Match</th>
+              <th>Date</th>
+              <th>Round</th>
+              <th>Team 1</th>
+              <th>Team 2</th>
+              <th>Stadium</th>
+              <th>City</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>This is an independent fan/project template. Replace the sample fixtures in <code>data.js</code> with the official schedule data you are allowed to use.</p>
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
