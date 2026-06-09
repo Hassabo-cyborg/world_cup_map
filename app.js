@@ -579,7 +579,8 @@
           <span class="vs">VS</span>
           <span>${b.flag} ${escapeHTML(b.name)}</span>
         </div>
-        <div class="match-date">${formatDate(match.date)} · ${escapeHTML(match.round)} · ${escapeHTML(match.weather || "Weather TBC")}</div>
+        <div class="match-date">Match ${escapeHTML(match.matchNumber || "—")} · ${escapeHTML(match.label || match.round)} · ${formatDate(match.date)}</div>
+        <div class="match-date">${escapeHTML(match.weather || "Weather TBC")}</div>
       </div>
     `;
   }
@@ -597,7 +598,7 @@
         <div class="match-meta">
           <span>${formatDate(match.date)}</span>
           <span>${escapeHTML(match.round)}</span>
-          <span>${escapeHTML(match.score || labelStatus(match.status))}</span>
+          <span>${escapeHTML(match.label || match.score || labelStatus(match.status))}</span>
         </div>
         <div class="match-date">${escapeHTML(match.weather || "Weather TBC")}</div>
       </div>
@@ -615,10 +616,11 @@
           const b = team(match.teamB);
           return `
             <article class="compact-card" data-match-stadium="${escapeHTML(match.stadiumId)}">
-              <span class="round-chip">${escapeHTML(match.round)}</span>
+              <span class="round-chip">Match ${escapeHTML(match.matchNumber || "—")} · ${escapeHTML(match.round)}</span>
               <div style="height:10px"></div>
               <div class="match-line"><span>${a.flag} ${escapeHTML(a.name)}</span><span class="vs">VS</span><span>${b.flag} ${escapeHTML(b.name)}</span></div>
               <div class="match-date">${formatDate(match.date)}</div>
+              <div class="match-date">${escapeHTML(match.label || "")}</div>
               <div class="match-date">${stadium?.countryFlag || ""} ${escapeHTML(stadium?.city || "Unknown")}</div>
             </article>
           `;
@@ -638,8 +640,8 @@
   }
 
   function renderBracketView() {
-    const knockout = matches.filter((m) => ["Round of 16", "Quarter Final", "Semi Final", "Final"].includes(m.round) || m.status === "final" || m.status === "knockout");
-    const rounds = ["Round of 16", "Quarter Final", "Semi Final", "Final"];
+    const rounds = DATA.stages?.filter((stage) => stage.name !== "Group Stage").sort((a, b) => a.order - b.order).map((stage) => stage.name) || ["Round of 32", "Round of 16", "Quarterfinals", "Semifinals", "Third Place Playoff", "Final"];
+    const knockout = matches.filter((m) => rounds.includes(m.round) || m.status === "final" || m.status === "knockout");
     const fallback = knockout.length ? knockout : matches.slice(-8);
     els.bracketView.innerHTML = `
       <h2 class="panel-title">Knockout Tree</h2>
@@ -657,7 +659,7 @@
                 return `
                   <article class="bracket-match ${round === "Final" ? "final" : ""}">
                     <div class="match-line"><span>${a.flag} ${escapeHTML(a.name)}</span><span class="vs">VS</span><span>${b.flag} ${escapeHTML(b.name)}</span></div>
-                    <div class="match-date">${stadium?.city || "TBC"} · ${formatShortDate(m.date)}</div>
+                    <div class="match-date">Match ${escapeHTML(m.matchNumber || "—")} · ${stadium?.city || "TBC"} · ${formatShortDate(m.date)}</div>
                   </article>
                 `;
               }).join("")}
