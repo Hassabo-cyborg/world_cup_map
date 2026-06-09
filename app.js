@@ -15,7 +15,8 @@
     hoveringId: null,
     filters: { search: "", country: "all", round: "all", team: "all" },
     filteredStadiumIds: new Set(stadiums.map((s) => s.id)),
-    motionOk: !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    motionOk: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    activeBracketMatch: null
   };
 
   document.addEventListener("DOMContentLoaded", init);
@@ -433,10 +434,92 @@
   }
 
   function matchTeams(match) {
-    if (match.homeTeam && match.awayTeam) {
-      return `${escapeHTML(match.homeTeam.flag)} ${escapeHTML(match.homeTeam.name)} <span style="color:var(--muted)">vs</span> ${escapeHTML(match.awayTeam.flag)} ${escapeHTML(match.awayTeam.name)}`;
+    if (match?.homeTeam && match?.awayTeam) {
+      return `${teamHTML(match.homeTeam)} <span class="versus">vs</span> ${teamHTML(match.awayTeam)}`;
     }
-    return escapeHTML(match.label || match.display || "Teams TBC");
+    const parts = splitMatchLabel(match?.label || match?.display || "Teams TBC");
+    if (parts.length === 2) {
+      return `${placeholderHTML(parts[0])} <span class="versus">vs</span> ${placeholderHTML(parts[1])}`;
+    }
+    return escapeHTML(match?.label || match?.display || "Teams TBC");
+  }
+
+  function teamHTML(team) {
+    return `<span class="team-chip"><span class="flag">${escapeHTML(team.flag || "🏳️")}</span>${escapeHTML(team.name || team.code || "Team TBC")}</span>`;
+  }
+
+  function placeholderHTML(token) {
+    const parsed = parseParticipantToken(token);
+    return `<span class="team-chip placeholder-team"><span class="code-badge">${escapeHTML(parsed.code)}</span>${escapeHTML(parsed.short)}</span>`;
+  }
+
+  function explainMatchLabel(label) {
+    const parts = splitMatchLabel(label);
+    if (parts.length !== 2) return escapeHTML(label || "Teams TBC");
+    return `${escapeHTML(parseParticipantToken(parts[0]).long)} vs ${escapeHTML(parseParticipantToken(parts[1]).long)}`;
+  }
+
+  function splitMatchLabel(label) {
+    return String(label || "")
+      .replace(/3RD\s+/gi, "3")
+      .split(/\s+vs\s+/i)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  function parseParticipantToken(rawToken) {
+    const raw = String(rawToken || "").trim().replace(/3RD\s+/i, "3");
+    const token = raw.replace(/[\/\s]/g, "");
+    const groupRank = token.match(/^([123])([A-L]+)$/i);
+    if (groupRank) {
+      const rank = groupRank[1];
+      const groups = groupRank[2].toUpperCase().split("");
+      if (rank === "1") return { code: raw, short: `Winner Group ${groups[0]}`, long: `winner of Group ${groups[0]}` };
+      if (rank === "2") return { code: raw, short: `Runner-up Group ${groups[0]}`, long: `runner-up of Group ${groups[0]}` };
+      return { code: raw, short: `3rd place ${groups.join("/")}`, long: `one of the qualified third-place teams from Group ${groups.join("/")}` };
+    }
+    const winner = token.match(/^W(\d+)$/i);
+    if (winner) return { code: raw, short: `Winner M${winner[1]}`, long: `winner of Match ${winner[1]}` };
+    const loser = token.match(/^(?:L|RU)(\d+)$/i);
+    if (loser) return { code: raw, short: `Loser M${loser[1]}`, long: `loser of Match ${loser[1]}` };
+    const rd32 = token.match(/^RD32W(\d+)$/i);
+    if (rd32) return { code: raw, short: `RD32 winner ${rd32[1]}`, long: `winner path ${rd32[1]} from the Round of 32` };
+    const rd16 = token.match(/^RD16W(\d+)$/i);
+    if (rd16) return { code: raw, short: `RD16 winner ${rd16[1]}`, long: `winner path ${rd16[1]} from the Round of 16` };
+    const qf = token.match(/^QFW(\d+)$/i);
+    if (qf) return { code: raw, short: `QF winner ${qf[1]}`, long: `winner path ${qf[1]} from the quarterfinals` };
+    const sf = token.match(/^SFW(\d+)$/i);
+    if (sf) return { code: raw, short: `SF winner ${sf[1]}`, long: `winner path ${sf[1]} from the semifinals` };
+    return { code: raw || "TBC", short: raw || "Team TBC", long: raw || "team to be confirmed" };
+  }
+
+  function getFeederMatches(match) {
+    const numbers = (match?.label || match?.display || "").match(/(?:W|L|RU)(\d+)/gi) || [];
+    return numbers.map((token) => getMatch(token.match(/\d+/)?.[0])).filter(Boolean);
+  }
+
+  function getNextBracketMatch(matchNumber) {
+    const pattern = new RegExp(`(?:^|\\b)(?:W|L|RU)${Number(matchNumber)}(?:\\b|$)`, "i");
+    return matches
+      .filter((m) => m.stageOrder > 1 && pattern.test(m.label || m.display || ""))
+      .sort(compareMatchesChronological)[0] || null;
+  }
+
+  function onBracketClick(event) {
+    const stageButton = event.target.closest("[data-bracket-stage]");
+    if (stageButton) {
+      state.activeBracketStage = stageButton.dataset.bracketStage;
+      renderBracketView();
+      return;
+    }
+    const node = event.target.closest("[data-match]");
+    if (!node) return;
+    const matchNumber = Number(node.dataset.match);
+    if (!matchNumber) return;
+    state.activeBracketMatch = matchNumber;
+    const match = getMatch(matchNumber);
+    if (match) state.activeBracketStage = match.stage;
+    renderBracketView();
   }
 
   function hideHoverCard() {
@@ -516,44 +599,99 @@
 
   function renderMatchesView() {
     const filteredMatches = getFilteredMatches();
+    const grouped = groupBy(filteredMatches, (match) => dayKey(match.kickoff));
+    const days = Array.from(grouped.keys()).sort((a, b) => dayTime(a) - dayTime(b));
     els.matchesView.innerHTML = `
       <div class="view-title">
         <div><span class="eyebrow">Schedule</span><h2>Matches</h2></div>
-        <p>${filteredMatches.length} matches</p>
+        <p>${filteredMatches.length} matches · chronological</p>
       </div>
-      <div class="matches-grid">
-        ${filteredMatches.map((match) => {
-          const stadium = getStadium(match.stadiumId);
-          return `<article class="match-card">
-            <header><span>M${match.matchNumber}</span><span>${escapeHTML(match.stage)}</span></header>
-            <h3>${matchTeams(match)}</h3>
-            <p>${formatDate(match.kickoff)}<br>${escapeHTML(stadium?.venue || "Venue TBC")} · ${escapeHTML(stadium?.city || "City TBC")}</p>
-          </article>`;
-        }).join("") || `<div class="empty-state">No matches match the current filters.</div>`}
+      <div class="schedule-timeline">
+        ${days.map((day) => `<section class="schedule-day">
+          <div class="day-label"><span>${formatDayTitle(day)}</span><strong>${grouped.get(day).length} matches</strong></div>
+          <div class="matches-grid">
+            ${grouped.get(day).map(matchCardHTML).join("")}
+          </div>
+        </section>`).join("") || `<div class="empty-state">No matches match the current filters.</div>`}
       </div>`;
   }
 
+  function matchCardHTML(match) {
+    const stadium = getStadium(match.stadiumId);
+    return `<article class="match-card">
+      <header><span>M${match.matchNumber}</span><span>${escapeHTML(match.stage)}</span></header>
+      <h3>${matchTeams(match)}</h3>
+      ${match.label && !match.homeTeam && !match.awayTeam ? `<p class="code-explain">${explainMatchLabel(match.label)}</p>` : ""}
+      <p>${formatTime(match.kickoff)}<br>${escapeHTML(stadium?.venue || "Venue TBC")} · ${escapeHTML(stadium?.city || "City TBC")}</p>
+    </article>`;
+  }
+
   function renderBracketView() {
-    const byStage = groupBy(matches, (m) => m.stage);
-    const stageList = stages.slice().sort((a, b) => a.order - b.order);
+    const knockoutStages = stages
+      .filter((stage) => stage.order > 1)
+      .sort((a, b) => a.order - b.order);
+    const byStage = groupBy(matches.filter((m) => m.stageOrder > 1), (m) => m.stage);
+    const firstStage = state.activeBracketStage || knockoutStages[0]?.name || "Round of 32";
+    const nextKnockout = matches.filter((m) => m.stageOrder > 1).sort(compareMatchesChronological)[0];
+
     els.bracketView.innerHTML = `
-      <div class="view-title">
+      <div class="view-title bracket-title">
         <div><span class="eyebrow">Knockout path</span><h2>Bracket</h2></div>
-        <p>Dataset stages</p>
+        <p>Interactive · chronological by kickoff</p>
       </div>
-      <div class="bracket-grid">
-        ${stageList.map((stage) => {
-          const stageMatches = byStage.get(stage.name) || [];
-          return `<section class="bracket-col">
-            <h3>${escapeHTML(stage.name)}</h3>
-            ${stageMatches.map((match) => `<article class="bracket-node ${stage.name === "Final" ? "final" : ""}">
-              <div class="match-no">M${match.matchNumber}</div>
-              <div class="match-teams">${matchTeams(match)}</div>
-              <p class="card-sub">${formatDate(match.kickoff)}</p>
-            </article>`).join("")}
-          </section>`;
-        }).join("")}
+      <div class="bracket-tabs" role="tablist" aria-label="Bracket rounds">
+        ${knockoutStages.map((stage) => `<button type="button" class="${stage.name === firstStage ? "active" : ""}" data-bracket-stage="${escapeHTML(stage.name)}">${escapeHTML(stage.name)}</button>`).join("")}
+      </div>
+      ${nextKnockout ? `<div class="bracket-note">
+        <strong>First knockout match:</strong> M${nextKnockout.matchNumber} · ${matchTeams(nextKnockout)} · ${formatDate(nextKnockout.kickoff)}
+      </div>` : ""}
+      <div class="bracket-shell">
+        <div class="bracket-grid espn-style">
+          ${knockoutStages.map((stage) => {
+            const stageMatches = (byStage.get(stage.name) || []).slice().sort(compareMatchesChronological);
+            return `<section class="bracket-col" data-stage-col="${escapeHTML(stage.name)}">
+              <h3>${escapeHTML(stage.name)}</h3>
+              ${stageMatches.map((match) => bracketNodeHTML(match)).join("")}
+            </section>`;
+          }).join("")}
+        </div>
+        <aside class="bracket-detail ${state.activeBracketMatch ? "" : "muted-detail"}" id="bracketDetail">
+          ${state.activeBracketMatch ? bracketDetailHTML(getMatch(state.activeBracketMatch)) : `<span class="eyebrow">How to read</span><h3>Click any bracket card</h3><p>Codes like <b>1L</b>, <b>3EHIJK</b>, and <b>W79</b> are placeholders until the group stage and knockout winners are known.</p>`}
+        </aside>
       </div>`;
+
+    requestAnimationFrame(() => {
+      const active = els.bracketView.querySelector(`[data-stage-col="${cssEscape(firstStage)}"]`);
+      active?.scrollIntoView({ behavior: state.motionOk ? "smooth" : "auto", block: "nearest", inline: "start" });
+    });
+  }
+
+  function bracketNodeHTML(match) {
+    const active = state.activeBracketMatch === match.matchNumber;
+    return `<article class="bracket-node ${match.stage === "Final" ? "final" : ""} ${active ? "selected" : ""}" data-match="${match.matchNumber}" tabindex="0" role="button" aria-label="Open match ${match.matchNumber}">
+      <div class="node-top"><span>M${match.matchNumber}</span><span>${formatShortDate(match.kickoff)}</span></div>
+      <div class="node-teams">${matchTeams(match)}</div>
+      <div class="node-code">${escapeHTML(match.label || match.display || "Teams TBC")}</div>
+      <div class="node-meta">${escapeHTML(getStadium(match.stadiumId)?.city || "City TBC")} · ${formatTime(match.kickoff)}</div>
+    </article>`;
+  }
+
+  function bracketDetailHTML(match) {
+    if (!match) return `<span class="eyebrow">Match</span><h3>Not found</h3>`;
+    const stadium = getStadium(match.stadiumId);
+    const feeds = getFeederMatches(match);
+    const next = getNextBracketMatch(match.matchNumber);
+    return `<span class="eyebrow">Selected match</span>
+      <h3>M${match.matchNumber} · ${escapeHTML(match.stage)}</h3>
+      <div class="detail-fixture">${matchTeams(match)}</div>
+      <p>${explainMatchLabel(match.label || match.display || "")}</p>
+      <div class="detail-meta-grid">
+        <div><small>Date</small><strong>${formatDate(match.kickoff)}</strong></div>
+        <div><small>Venue</small><strong>${escapeHTML(stadium?.venue || "TBC")}</strong></div>
+        <div><small>City</small><strong>${escapeHTML(stadium?.city || "TBC")}</strong></div>
+        <div><small>Path</small><strong>${next ? `Winner goes to M${next.matchNumber}` : match.stage === "Final" ? "Champion decided" : "TBC"}</strong></div>
+      </div>
+      ${feeds.length ? `<div class="feeders"><small>Feeds from</small>${feeds.map((m) => `<button type="button" data-match="${m.matchNumber}">M${m.matchNumber}</button>`).join("")}</div>` : ""}`;
   }
 
   function getFilteredStadiums() {
@@ -585,24 +723,39 @@
         if (match.homeTeamId !== teamId && match.awayTeamId !== teamId) return false;
       }
       if (state.filters.search) {
-        const haystack = [stadium.city, stadium.venue, stadium.country, match.stage, match.label, match.homeTeam?.name, match.awayTeam?.name]
+        const haystack = [stadium.city, stadium.venue, stadium.country, match.stage, match.label, match.display, match.homeTeam?.name, match.awayTeam?.name]
           .filter(Boolean).join(" ").toLowerCase();
         if (!haystack.includes(state.filters.search)) return false;
       }
       return true;
-    }).sort((a, b) => a.matchNumber - b.matchNumber);
+    }).sort(compareMatchesChronological);
   }
 
   function getStadium(id) {
     return stadiums.find((s) => s.id === id || String(s.cityId) === String(id));
   }
 
+  function getMatch(matchNumber) {
+    return matches.find((m) => Number(m.matchNumber) === Number(matchNumber));
+  }
+
   function getStadiumMatches(stadiumId) {
-    return matches.filter((m) => m.stadiumId === stadiumId).sort((a, b) => a.matchNumber - b.matchNumber);
+    return matches.filter((m) => m.stadiumId === stadiumId).sort(compareMatchesChronological);
   }
 
   function getNextMatch(stadiumId) {
     return getStadiumMatches(stadiumId)[0] || null;
+  }
+
+  function compareMatchesChronological(a, b) {
+    const byDate = matchTimeMs(a) - matchTimeMs(b);
+    if (byDate !== 0) return byDate;
+    return Number(a.matchNumber || 0) - Number(b.matchNumber || 0);
+  }
+
+  function matchTimeMs(match) {
+    const date = new Date(normalizeDateInput(match?.kickoff));
+    return Number.isNaN(date.getTime()) ? Number.MAX_SAFE_INTEGER : date.getTime();
   }
 
   function initialZoom() {
@@ -631,12 +784,83 @@
     return Number(value).toLocaleString("en-US");
   }
 
+  function normalizeDateInput(value) {
+    if (!value) return "";
+    return String(value).replace(/([+-]\d{2})$/, "$1:00");
+  }
+
+  function parseLocalParts(value) {
+    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    if (!match) return null;
+    return {
+      year: Number(match[1]),
+      month: Number(match[2]),
+      day: Number(match[3]),
+      hour: Number(match[4]),
+      minute: Number(match[5])
+    };
+  }
+
+  function monthName(monthNumber, long = false) {
+    const date = new Date(Date.UTC(2026, monthNumber - 1, 1));
+    return new Intl.DateTimeFormat("en", { month: long ? "long" : "short", timeZone: "UTC" }).format(date);
+  }
+
+  function localClock(parts) {
+    const h = parts.hour % 12 || 12;
+    const m = String(parts.minute).padStart(2, "0");
+    return `${h}:${m} ${parts.hour >= 12 ? "PM" : "AM"}`;
+  }
+
   function formatDate(value) {
     if (!value) return "Date TBC";
-    const normalized = String(value).replace(/([+-]\d{2})$/, "$1:00");
-    const date = new Date(normalized);
+    const parts = parseLocalParts(value);
+    if (parts) return `${monthName(parts.month)} ${parts.day}, ${parts.year} · ${localClock(parts)} local`;
+    const date = new Date(normalizeDateInput(value));
     if (Number.isNaN(date.getTime())) return escapeHTML(String(value));
     return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+  }
+
+  function formatTime(value) {
+    if (!value) return "Time TBC";
+    const parts = parseLocalParts(value);
+    if (parts) return `${localClock(parts)} local`;
+    const date = new Date(normalizeDateInput(value));
+    if (Number.isNaN(date.getTime())) return escapeHTML(String(value));
+    return new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(date);
+  }
+
+  function formatShortDate(value) {
+    if (!value) return "TBC";
+    const parts = parseLocalParts(value);
+    if (parts) return `${monthName(parts.month)} ${parts.day}`;
+    const date = new Date(normalizeDateInput(value));
+    if (Number.isNaN(date.getTime())) return escapeHTML(String(value));
+    return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(date);
+  }
+
+  function dayKey(value) {
+    const match = String(value || "").match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) return match[1];
+    const date = new Date(normalizeDateInput(value));
+    if (Number.isNaN(date.getTime())) return "TBC";
+    return date.toISOString().slice(0, 10);
+  }
+
+  function dayTime(day) {
+    const date = new Date(`${day}T00:00:00Z`);
+    return Number.isNaN(date.getTime()) ? Number.MAX_SAFE_INTEGER : date.getTime();
+  }
+
+  function formatDayTitle(day) {
+    if (day === "TBC") return "Date TBC";
+    const date = new Date(`${day}T00:00:00Z`);
+    return new Intl.DateTimeFormat("en", { weekday: "short", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }).format(date);
+  }
+
+  function cssEscape(value) {
+    if (window.CSS?.escape) return window.CSS.escape(value);
+    return String(value).replace(/"/g, '\\"');
   }
 
   function unique(list) {

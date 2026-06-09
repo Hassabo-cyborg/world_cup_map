@@ -3,7 +3,7 @@ window.WC_DATA = {
   "meta": {
     "title": "World Cup 2026 Map",
     "defaultTheme": "dark",
-    "version": "realmap-v7-minimal-points",
+    "version": "realmap-v8-chronological-bracket",
     "source": "Uploaded World Cup 2026 CSV dataset"
   },
   "stadiums": [
@@ -3248,8 +3248,8 @@ window.WC_DATA = {
       "stage": "Quarterfinals",
       "stageOrder": 4,
       "kickoff": "2026-07-11 21:00:00-05",
-      "label": "W95 vs W100",
-      "display": "W95 vs W100",
+      "label": "W95 vs W96",
+      "display": "W95 vs W96",
       "homeTeamId": null,
       "awayTeamId": null,
       "homeTeam": null,
