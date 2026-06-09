@@ -1,49 +1,38 @@
-# World Cup 2026 Map — Cinematic Facelift
+# World Cup 2026 Map — Facelift v2
 
-This is a first visual upgrade pass for the existing static GitHub Pages project.
+This version fixes the issues from the first facelift pass:
 
-## What changed
+- Stadium markers render on the map by default, including host stadiums that do not have sample matches yet.
+- The selected stadium card is no longer a side panel on desktop.
+- Hover cards follow the mouse.
+- Click cards float on top of the map near the clicked marker.
+- On mobile, the clicked stadium card becomes a bottom sheet because floating cards are too tight on small screens.
+- `app.js` now has fallback data so the map does not completely die if `data.js` is accidentally malformed.
+- `data.js` has been rewritten as valid JavaScript with safe comments.
 
-- Map-first homepage.
-- Deep green / off-white dark cinematic identity.
-- Light/dark mode toggle.
-- Minimal top navigation.
-- Hidden glassmorphism filter panel.
-- Animated elegant stadium pulse markers.
-- Hover stadium preview cards.
-- Click stadium detail cards.
-- Smooth fly-to behavior.
-- Team/country flag emoji placeholders.
-- Minimal dotted travel/fixture route lines.
-- Mobile-first bottom nav and bottom-sheet panels.
-- Cinematic bracket styling.
-- Subtle Three.js ambient particle layer.
+## Install
 
-## How to install
-
-Copy these files into the root of your repository, replacing the current versions:
-
-- `index.html`
-- `styles.css`
-- `app.js`
-- `data.js`
-
-Then open `index.html` locally or push to GitHub Pages.
-
-## Stadium images
-
-The code expects optional local images in:
+Replace these files in your repo root:
 
 ```txt
-assets/stadiums/
+index.html
+styles.css
+app.js
+data.js
 ```
 
-Example:
+Then push:
+
+```bash
+git add index.html styles.css app.js data.js
+git commit -m "Fix cinematic map markers and floating stadium cards"
+git push
+```
+
+After GitHub Pages redeploys, hard refresh:
 
 ```txt
-assets/stadiums/mexico-city.jpg
-assets/stadiums/los-angeles.jpg
-assets/stadiums/new-york-new-jersey.jpg
+Ctrl + Shift + R
 ```
 
-If an image is missing, the card will still work and display a styled cinematic placeholder background.
+If the map still does not show markers, open DevTools Console. The most important error to check is whether `data.js` is still the old broken version.
