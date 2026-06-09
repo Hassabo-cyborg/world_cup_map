@@ -1,92 +1,169 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>World Cup 2026 Match Map</title>
-  <meta name="description" content="Interactive World Cup match map and knockout bracket." />
-  <link rel="preconnect" href="https://unpkg.com" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-  <header class="hero">
-    <div>
-      <p class="eyebrow">FIFA World Cup 2026</p>
-      <h1>Match Map & Knockout Tree</h1>
-      <p class="subhead">Explore matches by team, round, date, and stadium. Then switch tabs to follow the tournament bracket all the way to the final.</p>
-    </div>
-    <div class="stats" id="stats"></div>
-  </header>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>World Cup 2026 Map</title>
+    <meta
+      name="description"
+      content="A cinematic interactive map for World Cup 2026 stadiums, fixtures, and knockout paths."
+    />
 
-  <nav class="tabs" aria-label="Main tabs">
-    <button class="tab active" data-tab="mapTab">Interactive map</button>
-    <button class="tab" data-tab="bracketTab">Knockout tree</button>
-    <button class="tab" data-tab="dataTab">Data table</button>
-  </nav>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIINfQFzWmAoiK3EgvM9JzSu0g7dIeekO9g="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
 
-  <main>
-    <section id="mapTab" class="panel active" aria-labelledby="map-tab">
-      <aside class="filters" aria-label="Match filters">
-        <label>
-          Team
-          <select id="teamFilter"><option value="all">All teams</option></select>
-        </label>
-        <label>
-          Round
-          <select id="roundFilter"><option value="all">All rounds</option></select>
-        </label>
-        <label>
-          Stadium
-          <select id="stadiumFilter"><option value="all">All stadiums</option></select>
-        </label>
-        <label>
-          Search
-          <input id="searchFilter" type="search" placeholder="team, city, match #..." />
-        </label>
-        <button id="resetFilters" class="secondary">Reset filters</button>
-      </aside>
+  <body>
+    <canvas id="ambientCanvas" aria-hidden="true"></canvas>
+    <div class="grain" aria-hidden="true"></div>
 
-      <section class="map-layout">
-        <div id="map" role="application" aria-label="World Cup stadium map"></div>
-        <div class="match-list" id="matchList" aria-live="polite"></div>
+    <header class="topbar" aria-label="Main navigation">
+      <button class="brand" data-tab="mapView" aria-label="Go to map">
+        <span>FIFA World Cup 2026</span>
+        <strong>World Cup 2026 Map</strong>
+      </button>
+
+      <nav class="nav-pills" aria-label="Sections">
+        <button class="tab active" data-tab="mapView">Map</button>
+        <button class="tab" data-tab="matchesView">Matches</button>
+        <button class="tab" data-tab="bracketView">Bracket</button>
+      </nav>
+
+      <div class="top-actions">
+        <button class="icon-btn" id="filterToggle" aria-expanded="false" aria-controls="filterPanel">
+          <span class="icon-line"></span>
+          <span class="icon-line small"></span>
+          Filters
+        </button>
+        <button class="icon-btn" id="themeToggle" aria-label="Toggle dark and light mode">Dark</button>
+      </div>
+    </header>
+
+    <aside id="filterPanel" class="filter-panel" aria-label="Map filters">
+      <div class="panel-head">
+        <div>
+          <span class="kicker">Tournament view</span>
+          <h2>Filters</h2>
+        </div>
+        <button class="close-btn" id="filterClose" aria-label="Close filters">×</button>
+      </div>
+
+      <label>
+        Team
+        <select id="teamFilter">
+          <option value="all">All teams</option>
+        </select>
+      </label>
+
+      <label>
+        Round
+        <select id="roundFilter">
+          <option value="all">All rounds</option>
+        </select>
+      </label>
+
+      <label>
+        Stadium
+        <select id="stadiumFilter">
+          <option value="all">All stadiums</option>
+        </select>
+      </label>
+
+      <label>
+        Status
+        <select id="statusFilter">
+          <option value="all">All statuses</option>
+          <option value="upcoming">Upcoming</option>
+          <option value="live">Live</option>
+          <option value="finished">Finished</option>
+          <option value="knockout">Knockout</option>
+          <option value="final">Final</option>
+        </select>
+      </label>
+
+      <label>
+        Search
+        <input id="searchFilter" type="search" placeholder="City, team, stadium..." />
+      </label>
+
+      <button id="resetFilters" class="primary-btn">Reset filters</button>
+    </aside>
+
+    <main class="app-shell">
+      <section id="mapView" class="view active" aria-label="Interactive stadium map">
+        <div class="map-shell" id="mapShell">
+          <div id="map" role="application" aria-label="World Cup 2026 stadium map"></div>
+
+          <div class="map-title-card glass-card">
+            <span class="kicker">Host atlas</span>
+            <h1>World Cup 2026 Map</h1>
+            <p>Stadiums, fixtures, knockout paths, and match movement across USA, Mexico, and Canada.</p>
+          </div>
+
+          <div id="mapStats" class="map-stats" aria-label="Map statistics"></div>
+          <div id="hoverCard" class="hover-card" aria-hidden="true"></div>
+          <article id="selectedStadium" class="selected-stadium glass-card" aria-live="polite"></article>
+        </div>
       </section>
-    </section>
 
-    <section id="bracketTab" class="panel" aria-labelledby="bracket-tab">
-      <div class="bracket-toolbar">
-        <h2>Knockout tree</h2>
-        <p>Fill results in <code>data.js</code>; winner placeholders automatically appear in the next rounds.</p>
-      </div>
-      <div class="bracket-scroll" id="bracket"></div>
-    </section>
+      <section id="matchesView" class="view content-view" aria-label="Match list">
+        <div class="content-header">
+          <span class="kicker">Fixture board</span>
+          <h2>Matches</h2>
+        </div>
+        <div id="matchList" class="match-list"></div>
 
-    <section id="dataTab" class="panel" aria-labelledby="data-tab">
-      <div class="table-wrap">
-        <table id="dataTable">
-          <thead>
-            <tr>
-              <th>Match</th>
-              <th>Date</th>
-              <th>Round</th>
-              <th>Team 1</th>
-              <th>Team 2</th>
-              <th>Stadium</th>
-              <th>City</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-  </main>
+        <div class="table-wrap glass-card">
+          <table id="dataTable">
+            <thead>
+              <tr>
+                <th>Match</th>
+                <th>Date</th>
+                <th>Round</th>
+                <th>Team 1</th>
+                <th>Team 2</th>
+                <th>Stadium</th>
+                <th>City</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
 
-  <footer>
-    <p>This is an independent fan/project template. Replace the sample fixtures in <code>data.js</code> with the official schedule data you are allowed to use.</p>
-  </footer>
+      <section id="bracketView" class="view content-view" aria-label="Knockout bracket">
+        <div class="content-header bracket-header">
+          <div>
+            <span class="kicker">Knockout path</span>
+            <h2>Cinematic bracket</h2>
+          </div>
+          <p>Placeholder winners automatically connect until the real knockout data is added.</p>
+        </div>
+        <div class="bracket-scroll">
+          <div id="bracket" class="bracket"></div>
+        </div>
+      </section>
+    </main>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="data.js"></script>
-  <script src="app.js"></script>
-</body>
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+  </body>
 </html>
