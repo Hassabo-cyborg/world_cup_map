@@ -1,92 +1,293 @@
-// Replace/extend the sample fixtures below with the full official schedule you are allowed to use.
-// Keep the same field names so the map, filters, table, and bracket update automatically.
+/*
+  World Cup 2026 Map — sample data for the cinematic prototype.
+  Replace match objects later with official fixture data.
+*/
 
 window.WC_DATA = {
+  meta: {
+    title: "World Cup 2026 Map",
+    defaultTheme: "dark",
+    note: "Prototype data for UI/UX testing before official fixtures are connected."
+  },
+
+  teams: {
+    USA: { name: "United States", flag: "🇺🇸" },
+    MEX: { name: "Mexico", flag: "🇲🇽" },
+    CAN: { name: "Canada", flag: "🇨🇦" },
+    BRA: { name: "Brazil", flag: "🇧🇷" },
+    ARG: { name: "Argentina", flag: "🇦🇷" },
+    FRA: { name: "France", flag: "🇫🇷" },
+    ESP: { name: "Spain", flag: "🇪🇸" },
+    ENG: { name: "England", flag: "🏴" },
+    GER: { name: "Germany", flag: "🇩🇪" },
+    JPN: { name: "Japan", flag: "🇯🇵" },
+    KOR: { name: "Korea Republic", flag: "🇰🇷" },
+    MAR: { name: "Morocco", flag: "🇲🇦" },
+    SEN: { name: "Senegal", flag: "🇸🇳" },
+    NED: { name: "Netherlands", flag: "🇳🇱" },
+    POR: { name: "Portugal", flag: "🇵🇹" },
+    URU: { name: "Uruguay", flag: "🇺🇾" },
+    COL: { name: "Colombia", flag: "🇨🇴" },
+    AUS: { name: "Australia", flag: "🇦🇺" },
+    QAT: { name: "Qatar", flag: "🇶🇦" },
+    GHA: { name: "Ghana", flag: "🇬🇭" },
+    ITA: { name: "Italy", flag: "🇮🇹" },
+    CRO: { name: "Croatia", flag: "🇭🇷" },
+    BEL: { name: "Belgium", flag: "🇧🇪" },
+    SUI: { name: "Switzerland", flag: "🇨🇭" }
+  },
+
   stadiums: [
-    { id: "MEX", fifaName: "Mexico City Stadium", stadium: "Estadio Azteca", city: "Mexico City", country: "Mexico", countryCode: "MX", lat: 19.3029, lng: -99.1505, capacity: 87523, image: "assets/stadiums/mexico-city.jpg", weather: "22°C · Clear" },
-    { id: "GDL", fifaName: "Guadalajara Stadium", stadium: "Estadio Akron", city: "Guadalajara", country: "Mexico", countryCode: "MX", lat: 20.6818, lng: -103.4624, capacity: 48071, image: "assets/stadiums/guadalajara.jpg", weather: "25°C · Clear" },
-    { id: "MTY", fifaName: "Monterrey Stadium", stadium: "Estadio BBVA", city: "Monterrey", country: "Mexico", countryCode: "MX", lat: 25.6689, lng: -100.2440, capacity: 53500, image: "assets/stadiums/monterrey.jpg", weather: "30°C · Dry" },
-    { id: "TOR", fifaName: "Toronto Stadium", stadium: "BMO Field", city: "Toronto", country: "Canada", countryCode: "CA", lat: 43.6332, lng: -79.4186, capacity: 45000, image: "assets/stadiums/toronto.jpg", weather: "21°C · Mild" },
-    { id: "VAN", fifaName: "Vancouver Stadium", stadium: "BC Place", city: "Vancouver", country: "Canada", countryCode: "CA", lat: 49.2768, lng: -123.1119, capacity: 54500, image: "assets/stadiums/vancouver.jpg", weather: "18°C · Cloudy" },
-    { id: "ATL", fifaName: "Atlanta Stadium", stadium: "Mercedes-Benz Stadium", city: "Atlanta", country: "USA", countryCode: "US", lat: 33.7554, lng: -84.4008, capacity: 71000, image: "assets/stadiums/atlanta.jpg", weather: "28°C · Humid" },
-    { id: "BOS", fifaName: "Boston Stadium", stadium: "Gillette Stadium", city: "Boston / Foxborough", country: "USA", countryCode: "US", lat: 42.0909, lng: -71.2643, capacity: 65878, image: "assets/stadiums/boston.jpg", weather: "23°C · Clear" },
-    { id: "DAL", fifaName: "Dallas Stadium", stadium: "AT&T Stadium", city: "Dallas / Arlington", country: "USA", countryCode: "US", lat: 32.7473, lng: -97.0945, capacity: 80000, image: "assets/stadiums/dallas.jpg", weather: "31°C · Hot" },
-    { id: "HOU", fifaName: "Houston Stadium", stadium: "NRG Stadium", city: "Houston", country: "USA", countryCode: "US", lat: 29.6847, lng: -95.4107, capacity: 72220, image: "assets/stadiums/houston.jpg", weather: "30°C · Humid" },
-    { id: "KC", fifaName: "Kansas City Stadium", stadium: "Arrowhead Stadium", city: "Kansas City", country: "USA", countryCode: "US", lat: 39.0490, lng: -94.4839, capacity: 76416, image: "assets/stadiums/kansas-city.jpg", weather: "26°C · Clear" },
-    { id: "LA", fifaName: "Los Angeles Stadium", stadium: "SoFi Stadium", city: "Los Angeles / Inglewood", country: "USA", countryCode: "US", lat: 33.9535, lng: -118.3392, capacity: 70240, image: "assets/stadiums/los-angeles.jpg", weather: "24°C · Clear" },
-    { id: "MIA", fifaName: "Miami Stadium", stadium: "Hard Rock Stadium", city: "Miami", country: "USA", countryCode: "US", lat: 25.9580, lng: -80.2389, capacity: 64767, image: "assets/stadiums/miami.jpg", weather: "29°C · Humid" },
-    { id: "NYNJ", fifaName: "New York New Jersey Stadium", stadium: "MetLife Stadium", city: "New York / New Jersey", country: "USA", countryCode: "US", lat: 40.8135, lng: -74.0745, capacity: 82500, image: "assets/stadiums/new-york-new-jersey.jpg", weather: "24°C · Clear" },
-    { id: "PHI", fifaName: "Philadelphia Stadium", stadium: "Lincoln Financial Field", city: "Philadelphia", country: "USA", countryCode: "US", lat: 39.9008, lng: -75.1675, capacity: 67594, image: "assets/stadiums/philadelphia.jpg", weather: "25°C · Mild" },
-    { id: "SF", fifaName: "San Francisco Bay Area Stadium", stadium: "Levi's Stadium", city: "San Francisco Bay Area / Santa Clara", country: "USA", countryCode: "US", lat: 37.4030, lng: -121.9700, capacity: 68500, image: "assets/stadiums/san-francisco.jpg", weather: "19°C · Breezy" },
-    { id: "SEA", fifaName: "Seattle Stadium", stadium: "Lumen Field", city: "Seattle", country: "USA", countryCode: "US", lat: 47.5952, lng: -122.3316, capacity: 68740, image: "assets/stadiums/seattle.jpg", weather: "18°C · Cloudy" }
+    {
+      id: "vancouver",
+      name: "BC Place",
+      city: "Vancouver",
+      country: "Canada",
+      countryFlag: "🇨🇦",
+      region: "West Coast",
+      capacity: 54000,
+      lat: 49.2767,
+      lng: -123.1119,
+      status: "upcoming",
+      image: "assets/stadiums/vancouver.jpg",
+      label: { dx: -260, dy: -52, anchor: "end" }
+    },
+    {
+      id: "seattle",
+      name: "Lumen Field",
+      city: "Seattle",
+      country: "United States",
+      countryFlag: "🇺🇸",
+      region: "West Coast",
+      capacity: 69000,
+      lat: 47.5952,
+      lng: -122.3316,
+      status: "upcoming",
+      image: "assets/stadiums/seattle.jpg",
+      label: { dx: -245, dy: 34, anchor: "end" }
+    },
+    {
+      id: "san-francisco",
+      name: "Levi's Stadium",
+      city: "San Francisco Bay Area",
+      country: "United States",
+      countryFlag: "🇺🇸",
+      region: "West Coast",
+      capacity: 71000,
+      lat: 37.4030,
+      lng: -121.9700,
+      status: "upcoming",
+      image: "assets/stadiums/san-francisco.jpg",
+      label: { dx: -250, dy: -18, anchor: "end" }
+    },
+    {
+      id: "los-angeles",
+      name: "SoFi Stadium",
+      city: "Los Angeles",
+      country: "United States",
+      countryFlag: "🇺🇸",
+      region: "West Coast",
+      capacity: 70000,
+      lat: 33.9535,
+      lng: -118.3392,
+      status: "live",
+      image: "assets/stadiums/los-angeles.jpg",
+      label: { dx: -245, dy: 36, anchor: "end" }
+    },
+    {
+      id: "guadalajara",
+      name: "Estadio Akron",
+      city: "Guadalajara",
+      country: "Mexico",
+      countryFlag: "🇲🇽",
+      region: "Mexico",
+      capacity: 48000,
+      lat: 20.6819,
+      lng: -103.4622,
+      status: "upcoming",
+      image: "assets/stadiums/guadalajara.jpg",
+      label: { dx: 28, dy: -34, anchor: "start" }
+    },
+    {
+      id: "mexico-city",
+      name: "Estadio Azteca",
+      city: "Mexico City",
+      country: "Mexico",
+      countryFlag: "🇲🇽",
+      region: "Mexico",
+      capacity: 83000,
+      lat: 19.3029,
+      lng: -99.1505,
+      status: "knockout",
+      image: "assets/stadiums/mexico-city.jpg",
+      label: { dx: 34, dy: 26, anchor: "start" }
+    },
+    {
+      id: "monterrey",
+      name: "Estadio BBVA",
+      city: "Monterrey",
+      country: "Mexico",
+      countryFlag: "🇲🇽",
+      region: "Mexico",
+      capacity: 53500,
+      lat: 25.6685,
+      lng: -100.2445,
+      status: "upcoming",
+      image: "assets/stadiums/monterrey.jpg",
+      label: { dx: 38, dy: -14, anchor: "start" }
+    },
+    {
+      id: "dallas",
+      name: "AT&T Stadium",
+      city: "Dallas",
+      country: "United States",
+      countryFlag: "🇺🇸",
+      region: "Central",
+      capacity: 94000,
+      lat: 32.7473,
+      lng: -97.0945,
+      status: "final",
+      image: "assets/stadiums/dallas.jpg",
+      label: { dx: -246, dy: 18, anchor: "end" }
+    },
+    {
+      id: "houston",
+      name: "NRG Stadium",
+      city: "Houston",
+      country: "United States",
+      countryFlag: "🇺🇸",
+      region: "Central",
+      capacity: 72000,
+      lat: 29.6847,
+      lng: -95.4107,
+      status: "upcoming",
+      image: "assets/stadiums/houston.jpg",
+      label: { dx: 36, dy: 12, anchor: "start" }
+    },
+    {
+      id: "kansas-city",
+      name: "Arrowhead Stadium",
+      city: "Kansas City",
+      country: "United States",
+      countryFlag: "🇺🇸",
+      region: "Central",
+      capacity: 73000,
+      lat: 39.0489,
+      lng: -94.4839,
+      status: "finished",
+      image: "assets/stadiums/kansas-city.jpg",
+      label: { dx: -260, dy: -18, anchor: "end" }
+    },
+    {
+      id: "atlanta",
+      name: "Mercedes-Benz Stadium",
+      city: "Atlanta",
+      country: "United States",
+      countryFlag: "🇺🇸",
+      region: "East Coast",
+      capacity: 75000,
+      lat: 33.7554,
+      lng: -84.4009,
+      status: "upcoming",
+      image: "assets/stadiums/atlanta.jpg",
+      label: { dx: 38, dy: -16, anchor: "start" }
+    },
+    {
+      id: "miami",
+      name: "Hard Rock Stadium",
+      city: "Miami",
+      country: "United States",
+      countryFlag: "🇺🇸",
+      region: "East Coast",
+      capacity: 65000,
+      lat: 25.9580,
+      lng: -80.2389,
+      status: "upcoming",
+      image: "assets/stadiums/miami.jpg",
+      label: { dx: 34, dy: -6, anchor: "start" }
+    },
+    {
+      id: "toronto",
+      name: "BMO Field",
+      city: "Toronto",
+      country: "Canada",
+      countryFlag: "🇨🇦",
+      region: "East Coast",
+      capacity: 45000,
+      lat: 43.6332,
+      lng: -79.4186,
+      status: "live",
+      image: "assets/stadiums/toronto.jpg",
+      label: { dx: -252, dy: -34, anchor: "end" }
+    },
+    {
+      id: "boston",
+      name: "Gillette Stadium",
+      city: "Boston",
+      country: "United States",
+      countryFlag: "🇺🇸",
+      region: "East Coast",
+      capacity: 65000,
+      lat: 42.0909,
+      lng: -71.2643,
+      status: "upcoming",
+      image: "assets/stadiums/boston.jpg",
+      label: { dx: 38, dy: -28, anchor: "start" }
+    },
+    {
+      id: "new-york-new-jersey",
+      name: "MetLife Stadium",
+      city: "New York / New Jersey",
+      country: "United States",
+      countryFlag: "🇺🇸",
+      region: "East Coast",
+      capacity: 82500,
+      lat: 40.8135,
+      lng: -74.0745,
+      status: "knockout",
+      image: "assets/stadiums/new-york-new-jersey.jpg",
+      label: { dx: 36, dy: 0, anchor: "start" }
+    },
+    {
+      id: "philadelphia",
+      name: "Lincoln Financial Field",
+      city: "Philadelphia",
+      country: "United States",
+      countryFlag: "🇺🇸",
+      region: "East Coast",
+      capacity: 69000,
+      lat: 39.9008,
+      lng: -75.1675,
+      status: "upcoming",
+      image: "assets/stadiums/philadelphia.jpg",
+      label: { dx: 36, dy: 38, anchor: "start" }
+    }
   ],
 
   matches: [
-    { id: 1, date: "2026-06-11T13:00:00-06:00", round: "Group stage", group: "Group A", team1: "Mexico", team2: "South Africa", stadiumId: "MEX", status: "scheduled" },
-    { id: 2, date: "2026-06-11T20:00:00-04:00", round: "Group stage", group: "Group K", team1: "TBD", team2: "TBD", stadiumId: "ATL", status: "sample" },
-    { id: 3, date: "2026-06-12T15:00:00-04:00", round: "Group stage", group: "Group B", team1: "Canada", team2: "TBD", stadiumId: "TOR", status: "sample" },
-    { id: 4, date: "2026-06-12T18:00:00-07:00", round: "Group stage", group: "Group D", team1: "USA", team2: "TBD", stadiumId: "LA", status: "sample" },
-    { id: 85, date: "2026-06-28T15:00:00-07:00", round: "Round of 32", group: "Knockout", team1: "Winner Group A", team2: "Runner-up Group B", stadiumId: "LA", status: "placeholder" },
-    { id: 97, date: "2026-07-09T19:00:00-04:00", round: "Quarter-final", group: "Knockout", team1: "Winner M89", team2: "Winner M90", stadiumId: "BOS", status: "placeholder" },
-    { id: 101, date: "2026-07-14T20:00:00-05:00", round: "Semi-final", group: "Knockout", team1: "Winner M97", team2: "Winner M98", stadiumId: "DAL", status: "placeholder" },
-    { id: 104, date: "2026-07-19T15:00:00-04:00", round: "Final", group: "Knockout", team1: "Winner M102", team2: "Winner M103", stadiumId: "NYNJ", status: "placeholder" }
+    { id: "m01", stadiumId: "mexico-city", date: "2026-06-11T20:00:00-06:00", round: "Opening", status: "upcoming", teamA: "MEX", teamB: "POR", weather: "23°C · Clear" },
+    { id: "m02", stadiumId: "los-angeles", date: "2026-06-12T18:00:00-07:00", round: "Group Stage", status: "live", teamA: "USA", teamB: "JPN", weather: "21°C · Mild" },
+    { id: "m03", stadiumId: "toronto", date: "2026-06-12T20:00:00-04:00", round: "Group Stage", status: "live", teamA: "CAN", teamB: "MAR", weather: "18°C · Cloudy" },
+    { id: "m04", stadiumId: "vancouver", date: "2026-06-13T16:00:00-07:00", round: "Group Stage", status: "upcoming", teamA: "ARG", teamB: "KOR", weather: "17°C · Clear" },
+    { id: "m05", stadiumId: "seattle", date: "2026-06-14T17:00:00-07:00", round: "Group Stage", status: "upcoming", teamA: "BRA", teamB: "SEN", weather: "16°C · Light rain" },
+    { id: "m06", stadiumId: "san-francisco", date: "2026-06-15T19:00:00-07:00", round: "Group Stage", status: "upcoming", teamA: "ESP", teamB: "AUS", weather: "18°C · Clear" },
+    { id: "m07", stadiumId: "guadalajara", date: "2026-06-16T20:00:00-06:00", round: "Group Stage", status: "upcoming", teamA: "GER", teamB: "COL", weather: "26°C · Warm" },
+    { id: "m08", stadiumId: "monterrey", date: "2026-06-17T21:00:00-06:00", round: "Group Stage", status: "upcoming", teamA: "FRA", teamB: "URU", weather: "29°C · Clear" },
+    { id: "m09", stadiumId: "dallas", date: "2026-06-18T18:00:00-05:00", round: "Group Stage", status: "upcoming", teamA: "ENG", teamB: "GHA", weather: "30°C · Hot" },
+    { id: "m10", stadiumId: "houston", date: "2026-06-19T20:00:00-05:00", round: "Group Stage", status: "upcoming", teamA: "NED", teamB: "QAT", weather: "31°C · Humid" },
+    { id: "m11", stadiumId: "kansas-city", date: "2026-06-20T18:00:00-05:00", round: "Group Stage", status: "finished", teamA: "ITA", teamB: "SUI", score: "2–1", weather: "27°C · Clear" },
+    { id: "m12", stadiumId: "atlanta", date: "2026-06-21T19:00:00-04:00", round: "Group Stage", status: "upcoming", teamA: "BEL", teamB: "CRO", weather: "28°C · Indoor" },
+    { id: "m13", stadiumId: "miami", date: "2026-06-22T20:00:00-04:00", round: "Group Stage", status: "upcoming", teamA: "ARG", teamB: "MAR", weather: "29°C · Humid" },
+    { id: "m14", stadiumId: "boston", date: "2026-06-23T18:00:00-04:00", round: "Group Stage", status: "upcoming", teamA: "BRA", teamB: "JPN", weather: "20°C · Clear" },
+    { id: "m15", stadiumId: "new-york-new-jersey", date: "2026-07-05T19:00:00-04:00", round: "Round of 16", status: "knockout", teamA: "FRA", teamB: "SEN", weather: "25°C · Clear" },
+    { id: "m16", stadiumId: "philadelphia", date: "2026-07-06T18:00:00-04:00", round: "Round of 16", status: "knockout", teamA: "ESP", teamB: "USA", weather: "27°C · Clear" },
+    { id: "m17", stadiumId: "dallas", date: "2026-07-14T19:00:00-05:00", round: "Semi Final", status: "knockout", teamA: "ARG", teamB: "FRA", weather: "Indoor" },
+    { id: "m18", stadiumId: "new-york-new-jersey", date: "2026-07-19T15:00:00-04:00", round: "Final", status: "final", teamA: "BRA", teamB: "ENG", weather: "26°C · Clear" }
   ],
 
-  bracketRounds: [
-    { name: "Round of 32", matchIds: [73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88] },
-    { name: "Round of 16", matchIds: [89,90,91,92,93,94,95,96] },
-    { name: "Quarter-finals", matchIds: [97,98,99,100] },
-    { name: "Semi-finals", matchIds: [101,102] },
-    { name: "Final", matchIds: [104] }
-  ],
-
-  bracketMatches: (() => {
-    const roundOf32 = [73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88];
-    const roundOf16 = [89,90,91,92,93,94,95,96];
-    const quarters = [97,98,99,100];
-    const semis = [101,102];
-    const data = {};
-
-    // FIFA's exact third-place pairings depend on which eight third-place teams qualify.
-    const r32Teams = [
-      ["Winner Group A", "Runner-up Group C"],
-      ["Winner Group B", "3rd-place qualifier"],
-      ["Winner Group C", "Runner-up Group F"],
-      ["Winner Group D", "3rd-place qualifier"],
-      ["Winner Group E", "Runner-up Group I"],
-      ["Winner Group F", "Runner-up Group C"],
-      ["Winner Group G", "3rd-place qualifier"],
-      ["Winner Group H", "Runner-up Group E"],
-      ["Winner Group I", "3rd-place qualifier"],
-      ["Winner Group J", "Runner-up Group H"],
-      ["Winner Group K", "3rd-place qualifier"],
-      ["Winner Group L", "Runner-up Group J"],
-      ["Runner-up Group A", "Runner-up Group B"],
-      ["Runner-up Group D", "Runner-up Group G"],
-      ["Runner-up Group K", "3rd-place qualifier"],
-      ["Runner-up Group L", "3rd-place qualifier"]
-    ];
-
-    roundOf32.forEach((id, i) => {
-      data[id] = { id, team1: r32Teams[i][0], team2: r32Teams[i][1], score1: null, score2: null, winner: `Winner M${id}` };
-    });
-
-    roundOf16.forEach((id, i) => {
-      const feeder = 73 + i * 2;
-      data[id] = { id, team1: `Winner M${feeder}`, team2: `Winner M${feeder + 1}`, score1: null, score2: null, winner: `Winner M${id}` };
-    });
-
-    quarters.forEach((id, i) => {
-      const feeder = 89 + i * 2;
-      data[id] = { id, team1: `Winner M${feeder}`, team2: `Winner M${feeder + 1}`, score1: null, score2: null, winner: `Winner M${id}` };
-    });
-
-    semis.forEach((id, i) => {
-      const feeder = 97 + i * 2;
-      data[id] = { id, team1: `Winner M${feeder}`, team2: `Winner M${feeder + 1}`, score1: null, score2: null, winner: `Winner M${id}` };
-    });
-
-    data[104] = { id: 104, team1: "Winner M101", team2: "Winner M102", score1: null, score2: null, winner: "Champion" };
-    return data;
-  })()
+  routes: [
+    ["vancouver", "seattle", "san-francisco", "los-angeles"],
+    ["guadalajara", "mexico-city", "monterrey", "dallas", "houston"],
+    ["toronto", "boston", "new-york-new-jersey", "philadelphia", "atlanta", "miami"]
+  ]
 };
