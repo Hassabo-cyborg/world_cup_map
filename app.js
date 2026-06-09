@@ -1,21 +1,21 @@
 (() => {
   "use strict";
 
-  const SVG_NS = "http://www.w3.org/2000/svg";
-  const VIEW = { w: 1600, h: 900 };
   const DATA = window.WC_DATA || fallbackData();
-  const stadiums = DATA.stadiums || [];
-  const matches = DATA.matches || [];
+  const stadiums = Array.isArray(DATA.stadiums) ? DATA.stadiums : [];
+  const matches = Array.isArray(DATA.matches) ? DATA.matches : [];
   const teams = DATA.teams || {};
+  const stageOrder = DATA.stages || [];
 
   const els = {};
   const state = {
-    transform: { x: 0, y: 0, k: 1 },
-    dragging: false,
-    pointerStart: null,
-    transformStart: null,
-    selectedId: null,
+    map: null,
     activeView: "map",
+    selectedId: null,
+    hoverId: null,
+    markerObjects: new Map(),
+    labelObjects: new Map(),
+    countryLabelObjects: [],
     filters: {
       search: "",
       country: "all",
@@ -23,21 +23,18 @@
       round: "all",
       team: "all"
     },
-    hoverId: null,
-    reduceMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  };
-
-  const three = {
-    enabled: false,
-    renderer: null,
-    scene: null,
-    camera: null,
-    sprites: new Map(),
-    cursor: null,
-    particles: null,
-    raf: null,
-    width: 0,
-    height: 0
+    three: {
+      ok: false,
+      renderer: null,
+      scene: null,
+      camera: null,
+      sprites: new Map(),
+      particles: null,
+      raf: null,
+      clock: 0
+    },
+    reduceMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    cardPosition: { x: 0, y: 0 }
   };
 
   document.addEventListener("DOMContentLoaded", init);
@@ -45,22 +42,12 @@
   function init() {
     bindElements();
     applySavedTheme();
-    drawStaticMap();
     populateFilters();
-    renderMarkers();
-    renderRoutes();
-    renderLegend();
     bindEvents();
+    renderLegend();
     renderMatchesView();
     renderBracketView();
-    loadThreeScript()
-      .then(() => {
-        initThreeAtmosphere();
-        updateThreePositions();
-      })
-      .catch(() => {
-        console.warn("Three.js could not be loaded. The SVG map remains fully functional.");
-      });
+    initMap();
     setView("map");
   }
 
@@ -68,13 +55,8 @@
     els.html = document.documentElement;
     els.app = document.getElementById("app");
     els.mapStage = document.getElementById("mapStage");
-    els.svg = document.getElementById("mapSvg");
-    els.viewport = document.getElementById("viewport");
-    els.gridLayer = document.getElementById("gridLayer");
-    els.countryLayer = document.getElementById("countryLayer");
-    els.routeLayer = document.getElementById("routeLayer");
-    els.labelLayer = document.getElementById("labelLayer");
-    els.markerLayer = document.getElementById("markerLayer");
+    els.map = document.getElementById("map");
+    els.leaderLayer = document.getElementById("leaderLayer");
     els.hoverCard = document.getElementById("hoverCard");
     els.detailCard = document.getElementById("detailCard");
     els.filterPanel = document.getElementById("filterPanel");
@@ -90,810 +72,651 @@
 
   function applySavedTheme() {
     const saved = localStorage.getItem("wc-map-theme") || DATA.meta?.defaultTheme || "dark";
-    els.html.dataset.theme = saved;
+    els.html.dataset.theme = saved === "light" ? "light" : "dark";
   }
 
-  function drawStaticMap() {
-    drawGrid();
-    drawCountries();
-    drawCountryLabels();
-    applyTransform();
-  }
-
-  function drawGrid() {
-    clear(els.gridLayer);
-    for (let x = 120; x <= VIEW.w - 120; x += 160) {
-      const line = svgEl("line", { x1: x, y1: 40, x2: x, y2: VIEW.h - 40 });
-      els.gridLayer.appendChild(line);
+  function initMap() {
+    if (!window.maplibregl) {
+      showFatalMapMessage("MapLibre did not load. Check your internet connection and refresh.");
+      return;
     }
-    for (let y = 100; y <= VIEW.h - 100; y += 110) {
-      const line = svgEl("line", { x1: 60, y1: y, x2: VIEW.w - 60, y2: y });
-      els.gridLayer.appendChild(line);
-    }
-  }
 
-  function drawCountries() {
-    clear(els.countryLayer);
+    state.map = new maplibregl.Map({
+      container: "map",
+      style: makeMapStyle(currentTheme()),
+      center: [-99.5, 39.2],
+      zoom: initialZoom(),
+      minZoom: 2.25,
+      maxZoom: 9,
+      bearing: 0,
+      pitch: 0,
+      dragRotate: false,
+      touchZoomRotate: true,
+      maxBounds: [[-143.5, 12.5], [-50.0, 61.8]],
+      attributionControl: false
+    });
 
-    const countries = [
-      {
-        id: "ca",
-        cls: "country ca",
-        path: "M150,55 C320,20 475,36 630,78 C805,126 958,92 1168,78 C1342,64 1482,94 1552,170 L1506,286 C1360,254 1246,284 1114,292 C948,303 762,262 598,254 C430,246 292,268 138,232 Z"
-      },
-      {
-        id: "us",
-        cls: "country us",
-        path: "M280,252 C388,234 512,264 626,278 C742,292 866,276 1002,288 C1128,299 1244,286 1362,338 L1328,548 C1194,548 1074,568 956,590 C832,613 720,574 606,574 C488,574 374,610 278,548 C234,500 228,340 280,252 Z"
-      },
-      {
-        id: "mx",
-        cls: "country mx",
-        path: "M506,540 C592,548 675,575 756,604 C842,634 918,632 1000,604 L1048,702 C960,730 878,784 810,844 C730,842 666,812 622,756 C580,704 522,666 468,640 Z"
+    state.map.touchZoomRotate.disableRotation();
+    state.map.keyboard.enable();
+
+    state.map.on("load", () => {
+      addMapLayers();
+      renderCountryWatermarks();
+      renderStadiumLayer();
+      renderRoutes();
+      fitHostBounds(false);
+      initThreeLayer();
+      updateLeaderLines();
+    });
+
+    state.map.on("move", syncMapOverlays);
+    state.map.on("zoom", syncMapOverlays);
+    state.map.on("resize", syncMapOverlays);
+    state.map.on("click", (event) => {
+      if (!event.originalEvent.target.closest(".stadium-marker, .stadium-label, .floating-card, .panel, .topbar, .mobile-tabs, .control-stack")) {
+        closeDetailCard();
       }
-    ];
-
-    countries.forEach((country) => {
-      els.countryLayer.appendChild(svgEl("path", {
-        d: country.path,
-        class: country.cls,
-        id: `country-${country.id}`
-      }));
     });
-
-    const borderLines = [
-      { x1: 214, y1: 250, x2: 1340, y2: 318, stroke: "rgba(245,240,223,.075)" },
-      { x1: 520, y1: 572, x2: 958, y2: 606, stroke: "rgba(245,240,223,.075)" }
-    ];
-    borderLines.forEach((l) => els.countryLayer.appendChild(svgEl("line", { ...l, class: "label-link" })));
   }
 
-  function drawCountryLabels() {
-    const labels = [
-      { text: "CANADA", x: 780, y: 120 },
-      { text: "UNITED STATES", x: 730, y: 360 },
-      { text: "MEXICO", x: 690, y: 684 }
-    ];
-    labels.forEach((label) => {
-      const t = svgEl("text", {
-        x: label.x,
-        y: label.y,
-        class: "country-label",
-        "text-anchor": "middle"
-      });
-      t.textContent = label.text;
-      els.countryLayer.appendChild(t);
-    });
+  function makeMapStyle(theme) {
+    const isLight = theme === "light";
+    const tileName = isLight ? "light_nolabels" : "dark_nolabels";
+    const opacity = isLight ? 0.94 : 0.88;
+    const saturation = isLight ? -0.55 : -0.72;
+    const contrast = isLight ? 0.05 : 0.18;
+    const brightnessMax = isLight ? 1.0 : 0.76;
 
-    const zones = [
-      { text: "UTC-8 Pacific", x: 388, y: 874 },
-      { text: "UTC-7 Mountain", x: 612, y: 874 },
-      { text: "UTC-6 Central", x: 830, y: 874 },
-      { text: "UTC-5 Eastern", x: 1060, y: 874 }
-    ];
-    zones.forEach((zone) => {
-      const t = svgEl("text", {
-        x: zone.x,
-        y: zone.y,
-        class: "timezone-label",
-        "text-anchor": "middle"
+    return {
+      version: 8,
+      sources: {
+        carto: {
+          type: "raster",
+          tiles: [
+            `https://a.basemaps.cartocdn.com/${tileName}/{z}/{x}/{y}{r}.png`,
+            `https://b.basemaps.cartocdn.com/${tileName}/{z}/{x}/{y}{r}.png`,
+            `https://c.basemaps.cartocdn.com/${tileName}/{z}/{x}/{y}{r}.png`,
+            `https://d.basemaps.cartocdn.com/${tileName}/{z}/{x}/{y}{r}.png`
+          ],
+          tileSize: 256,
+          attribution: "© OpenStreetMap contributors © CARTO"
+        }
+      },
+      layers: [
+        {
+          id: "carto-base",
+          type: "raster",
+          source: "carto",
+          paint: {
+            "raster-opacity": opacity,
+            "raster-saturation": saturation,
+            "raster-contrast": contrast,
+            "raster-brightness-min": 0,
+            "raster-brightness-max": brightnessMax
+          }
+        }
+      ]
+    };
+  }
+
+  function addMapLayers() {
+    if (!state.map || !state.map.isStyleLoaded()) return;
+
+    if (!state.map.getSource("host-zones")) {
+      state.map.addSource("host-zones", { type: "geojson", data: hostZonesGeoJSON() });
+      state.map.addLayer({
+        id: "host-zones-fill",
+        type: "fill",
+        source: "host-zones",
+        paint: {
+          "fill-color": ["match", ["get", "country"], "United States", "#e66d55", "Mexico", "#d9a232", "Canada", "#2aa8ff", "#d9b25f"],
+          "fill-opacity": ["interpolate", ["linear"], ["zoom"], 2.2, 0.08, 4.2, 0.15, 7, 0.05]
+        }
       });
-      t.textContent = zone.text;
-      els.countryLayer.appendChild(t);
+      state.map.addLayer({
+        id: "host-zones-outline",
+        type: "line",
+        source: "host-zones",
+        paint: {
+          "line-color": ["match", ["get", "country"], "United States", "#e66d55", "Mexico", "#d9a232", "Canada", "#2aa8ff", "#d9b25f"],
+          "line-opacity": 0.42,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 2, 0.6, 5, 1.6]
+        }
+      });
+    }
+
+    if (!state.map.getSource("routes")) {
+      state.map.addSource("routes", { type: "geojson", data: routesGeoJSON() });
+      state.map.addLayer({
+        id: "route-lines-shadow",
+        type: "line",
+        source: "routes",
+        paint: {
+          "line-color": "#000000",
+          "line-opacity": 0.22,
+          "line-width": 4,
+          "line-blur": 5
+        }
+      });
+      state.map.addLayer({
+        id: "route-lines",
+        type: "line",
+        source: "routes",
+        paint: {
+          "line-color": ["match", ["get", "route"], "west", "#25ddff", "mexico-central", "#d9b25f", "east", "#006dff", "#d9b25f"],
+          "line-opacity": 0.48,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 2, 0.8, 6, 1.9],
+          "line-dasharray": [1.2, 2.4]
+        }
+      });
+    }
+  }
+
+  function hostZonesGeoJSON() {
+    return {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: { country: "Canada" },
+          geometry: { type: "Polygon", coordinates: [[[-141,60],[-140,50],[-124,49],[-95,49],[-66,45],[-53,48],[-52,58],[-70,68],[-100,72],[-130,68],[-141,60]]] }
+        },
+        {
+          type: "Feature",
+          properties: { country: "United States" },
+          geometry: { type: "Polygon", coordinates: [[[-124.8,48.9],[-123,45.5],[-124,42],[-122,39],[-123,37],[-121,35],[-118,33],[-117,32.5],[-111,31.3],[-106.5,31.8],[-103,29],[-98,26],[-95,29],[-89,29.5],[-82,25.8],[-80,26.5],[-81,30],[-79,33.5],[-75,35.5],[-74,40],[-69,44.5],[-67,47.3],[-95,49],[-124.8,48.9]]] }
+        },
+        {
+          type: "Feature",
+          properties: { country: "Mexico" },
+          geometry: { type: "Polygon", coordinates: [[[-117,32.6],[-111,31.3],[-106.5,31.8],[-103,29],[-98,26],[-95,29],[-89,21.5],[-86,18],[-91,16],[-96,16],[-101,18],[-105,20],[-107,23],[-110,25],[-113,28],[-117,32.6]]] }
+        }
+      ]
+    };
+  }
+
+  function routesGeoJSON() {
+    const features = [];
+    const routeGroups = DATA.routes || [
+      ["vancouver", "seattle", "san-francisco", "los-angeles"],
+      ["guadalajara", "mexico-city", "monterrey", "dallas", "houston", "kansas-city"],
+      ["toronto", "boston", "new-york-new-jersey", "philadelphia", "atlanta", "miami"]
+    ];
+    const routeNames = ["west", "mexico-central", "east"];
+    routeGroups.forEach((route, index) => {
+      route.forEach((id, i) => {
+        const a = findStadium(id);
+        const b = findStadium(route[i + 1]);
+        if (!a || !b) return;
+        features.push({
+          type: "Feature",
+          properties: { route: routeNames[index] || `route-${index}` },
+          geometry: { type: "LineString", coordinates: curvedLngLat(a, b, index % 2 ? -0.22 : 0.22) }
+        });
+      });
     });
+    return { type: "FeatureCollection", features };
+  }
+
+  function curvedLngLat(a, b, bend) {
+    const steps = 34;
+    const coords = [];
+    const dx = b.lng - a.lng;
+    const dy = b.lat - a.lat;
+    for (let i = 0; i <= steps; i += 1) {
+      const t = i / steps;
+      const curve = Math.sin(Math.PI * t) * bend;
+      const lng = a.lng + dx * t + (-dy) * curve;
+      const lat = a.lat + dy * t + dx * curve * 0.18;
+      coords.push([lng, lat]);
+    }
+    return coords;
   }
 
   function renderRoutes() {
-    clear(els.routeLayer);
-    (DATA.routes || []).forEach((route, routeIndex) => {
-      const points = route.map((id) => stadiums.find((s) => s.id === id)).filter(Boolean).map(project);
-      for (let i = 0; i < points.length - 1; i += 1) {
-        const a = points[i];
-        const b = points[i + 1];
-        const curve = curvedPath(a, b, routeIndex % 2 ? -0.16 : 0.16);
-        els.routeLayer.appendChild(svgEl("path", {
-          d: curve,
-          class: `route-line ${routeIndex === 2 ? "blue" : ""}`
-        }));
-      }
+    if (!state.map || !state.map.getSource("routes")) return;
+    state.map.getSource("routes").setData(routesGeoJSON());
+  }
+
+  function renderCountryWatermarks() {
+    removeCountryWatermarks();
+    const labels = [
+      { text: "CANADA", lng: -98, lat: 55.5, className: "country-watermark" },
+      { text: "UNITED STATES", lng: -98, lat: 38.8, className: "country-watermark" },
+      { text: "MEXICO", lng: -102, lat: 22.3, className: "country-watermark" },
+      { text: "UTC-8 PACIFIC", lng: -122.8, lat: 17.2, className: "timezone-label" },
+      { text: "UTC-7 MOUNTAIN", lng: -111.5, lat: 17.2, className: "timezone-label" },
+      { text: "UTC-6 CENTRAL", lng: -98.2, lat: 17.2, className: "timezone-label" },
+      { text: "UTC-5 EASTERN", lng: -82.2, lat: 17.2, className: "timezone-label" }
+    ];
+    labels.forEach((label) => {
+      const el = document.createElement("div");
+      el.className = label.className;
+      el.textContent = label.text;
+      const marker = new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([label.lng, label.lat]).addTo(state.map);
+      state.countryLabelObjects.push(marker);
     });
   }
 
-  function renderMarkers() {
-    clear(els.markerLayer);
-    clear(els.labelLayer);
+  function removeCountryWatermarks() {
+    state.countryLabelObjects.forEach((marker) => marker.remove());
+    state.countryLabelObjects = [];
+  }
 
-    stadiums.forEach((stadium) => {
-      const point = project(stadium);
+  function renderStadiumLayer() {
+    removeStadiumLayer();
+    const visible = visibleStadiums();
+
+    visible.forEach((stadium) => {
       const status = stadiumStatus(stadium);
-      const marker = svgEl("g", {
-        class: `marker-node status-${status}`,
-        transform: `translate(${point.x} ${point.y})`,
-        tabindex: "0",
-        role: "button",
-        "aria-label": `${stadium.city}, ${stadium.name}`,
-        "data-id": stadium.id
-      });
+      const markerEl = createMarkerEl(stadium, status);
+      const marker = new maplibregl.Marker({ element: markerEl, anchor: "center" })
+        .setLngLat([stadium.lng, stadium.lat])
+        .addTo(state.map);
 
-      marker.appendChild(svgEl("circle", { class: "marker-halo pulse", r: 22, cx: 0, cy: 0, filter: "url(#softGlow)" }));
-      marker.appendChild(svgEl("circle", { class: "marker-ring", r: status === "final" ? 19 : 15, cx: 0, cy: 0, fill: "none" }));
-      marker.appendChild(svgEl("circle", { class: "marker-core", r: status === "final" ? 7 : 6, cx: 0, cy: 0, filter: "url(#softGlow)" }));
-      marker.appendChild(svgEl("circle", { class: "hit-area", r: 28, cx: 0, cy: 0, fill: "transparent" }));
+      const labelEl = createLabelEl(stadium, status);
+      const offset = labelOffset(stadium);
+      const anchor = offset.anchor === "end" ? "right" : "left";
+      const label = new maplibregl.Marker({ element: labelEl, anchor, offset: [offset.dx, offset.dy] })
+        .setLngLat([stadium.lng, stadium.lat])
+        .addTo(state.map);
 
-      marker.addEventListener("mouseenter", (event) => showHover(stadium, event.clientX, event.clientY));
-      marker.addEventListener("mousemove", (event) => moveFloatingCard(els.hoverCard, event.clientX, event.clientY));
-      marker.addEventListener("mouseleave", () => hideHover());
-      marker.addEventListener("focus", () => {
-        const screen = contentPointToClient(project(stadium));
-        showHover(stadium, screen.x, screen.y);
-      });
-      marker.addEventListener("blur", hideHover);
-      marker.addEventListener("click", (event) => {
-        event.stopPropagation();
-        selectStadium(stadium, event.clientX, event.clientY, true);
-      });
-      marker.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          const screen = contentPointToClient(project(stadium));
-          selectStadium(stadium, screen.x, screen.y, true);
-        }
-      });
-
-      els.markerLayer.appendChild(marker);
-      els.labelLayer.appendChild(labelForStadium(stadium, point, status));
+      bindStadiumEvents(markerEl, stadium);
+      bindStadiumEvents(labelEl, stadium);
+      state.markerObjects.set(stadium.id, { marker, el: markerEl });
+      state.labelObjects.set(stadium.id, { label, el: labelEl, offset });
     });
 
-    applyFiltersToMarkers();
+    updateLeaderLines();
+    updateThreePositions();
   }
 
-  function labelForStadium(stadium, point, status) {
-    const offset = stadium.label || { dx: 34, dy: -20, anchor: "start" };
-    const width = Math.min(285, Math.max(218, stadium.city.length * 9 + 92));
-    const height = 54;
-    const x = offset.anchor === "end" ? point.x + offset.dx - width : point.x + offset.dx;
-    const y = point.y + offset.dy - height / 2;
-    const lineEndX = offset.anchor === "end" ? x + width : x;
-    const lineEndY = y + height / 2;
-
-    const group = svgEl("g", { class: `map-label-card status-${status}`, filter: "url(#labelShadow)" });
-    group.appendChild(svgEl("line", {
-      x1: point.x,
-      y1: point.y,
-      x2: lineEndX,
-      y2: lineEndY,
-      class: "label-link"
-    }));
-    group.appendChild(svgEl("rect", { x, y, width, height, rx: 7, ry: 7 }));
-
-    const title = svgEl("text", { x: x + 14, y: y + 21, class: "map-label-title" });
-    title.textContent = compactCity(stadium.city);
-    group.appendChild(title);
-
-    const sub = svgEl("text", { x: x + 14, y: y + 41, class: "map-label-sub" });
-    sub.textContent = `${stadium.name} · ${formatCapacity(stadium.capacity)}`;
-    group.appendChild(sub);
-
-    return group;
+  function removeStadiumLayer() {
+    state.markerObjects.forEach((item) => item.marker.remove());
+    state.labelObjects.forEach((item) => item.label.remove());
+    state.markerObjects.clear();
+    state.labelObjects.clear();
+    els.leaderLayer.innerHTML = "";
   }
 
-  function bindEvents() {
-    window.addEventListener("resize", () => {
-      resizeThree();
-      updateThreePositions();
-      if (state.selectedId) positionDetailAtStadium(getStadium(state.selectedId));
+  function createMarkerEl(stadium, status) {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = `stadium-marker ${countryClass(stadium.country)} status-${status}`;
+    el.dataset.id = stadium.id;
+    el.setAttribute("aria-label", `${stadium.city}, ${stadium.name}`);
+    el.innerHTML = `<span class="marker-visual"><span class="marker-halo"></span><span class="marker-ring"></span><span class="marker-core"></span></span>`;
+    return el;
+  }
+
+  function createLabelEl(stadium, status) {
+    const games = stadiumMatches(stadium.id).length;
+    const el = document.createElement("div");
+    el.className = `stadium-label ${countryClass(stadium.country)} status-${status}`;
+    el.dataset.id = stadium.id;
+    el.innerHTML = `
+      <span class="label-city">${escapeHTML(shortCity(stadium.city))}</span>
+      <span class="label-meta">${escapeHTML(stadium.name)} · ${formatCapacity(stadium.capacity)} · ${games} games</span>
+    `;
+    return el;
+  }
+
+  function labelOffset(stadium) {
+    const defaults = { dx: 36, dy: -14, anchor: "start" };
+    const byId = {
+      "vancouver": { dx: -250, dy: -48, anchor: "end" },
+      "seattle": { dx: -238, dy: 36, anchor: "end" },
+      "san-francisco": { dx: -248, dy: -12, anchor: "end" },
+      "los-angeles": { dx: -238, dy: 38, anchor: "end" },
+      "kansas-city": { dx: -258, dy: -20, anchor: "end" },
+      "dallas": { dx: -250, dy: 18, anchor: "end" },
+      "houston": { dx: 34, dy: 12, anchor: "start" },
+      "monterrey": { dx: 34, dy: -16, anchor: "start" },
+      "guadalajara": { dx: 32, dy: -38, anchor: "start" },
+      "mexico-city": { dx: 34, dy: 28, anchor: "start" },
+      "toronto": { dx: -246, dy: -36, anchor: "end" },
+      "boston": { dx: 38, dy: -28, anchor: "start" },
+      "new-york-new-jersey": { dx: 38, dy: 2, anchor: "start" },
+      "philadelphia": { dx: 38, dy: 38, anchor: "start" },
+      "atlanta": { dx: 38, dy: -16, anchor: "start" },
+      "miami": { dx: 34, dy: -8, anchor: "start" }
+    };
+    const fromData = stadium.label || {};
+    return { ...defaults, ...(byId[stadium.id] || {}), ...fromData };
+  }
+
+  function bindStadiumEvents(el, stadium) {
+    el.addEventListener("pointerenter", (event) => {
+      state.hoverId = stadium.id;
+      setActiveStadium(stadium.id, true);
+      renderHoverCard(stadium, event.clientX, event.clientY);
     });
-
-    els.svg.addEventListener("wheel", onWheel, { passive: false });
-    els.svg.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    els.svg.addEventListener("click", (event) => {
-      if (event.target === els.svg || event.target.id === "gridLayer" || event.target.id === "viewport") {
-        closeDetail();
+    el.addEventListener("pointermove", (event) => {
+      if (state.hoverId === stadium.id) positionFloatingCard(els.hoverCard, event.clientX + 22, event.clientY + 18);
+    });
+    el.addEventListener("pointerleave", () => {
+      state.hoverId = null;
+      if (state.selectedId !== stadium.id) setActiveStadium(stadium.id, false);
+      els.hoverCard.classList.add("hidden");
+    });
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      selectStadium(stadium, event.clientX, event.clientY);
+    });
+    el.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        const screen = screenPoint(stadium);
+        selectStadium(stadium, screen.x, screen.y);
       }
     });
-
-    document.getElementById("zoomIn").addEventListener("click", () => zoomBy(1.22));
-    document.getElementById("zoomOut").addEventListener("click", () => zoomBy(0.82));
-    document.getElementById("resetMap").addEventListener("click", () => animateTransform({ x: 0, y: 0, k: 1 }));
-
-    document.getElementById("filterToggle").addEventListener("click", () => els.filterPanel.classList.toggle("hidden"));
-    document.getElementById("closeFilters").addEventListener("click", () => els.filterPanel.classList.add("hidden"));
-    document.getElementById("clearFilters").addEventListener("click", clearFilters);
-    document.getElementById("themeToggle").addEventListener("click", toggleTheme);
-
-    [els.searchInput, els.countryFilter, els.statusFilter, els.roundFilter, els.teamFilter].forEach((input) => {
-      input.addEventListener("input", readFilters);
-      input.addEventListener("change", readFilters);
-    });
-
-    document.querySelectorAll("[data-view]").forEach((button) => {
-      button.addEventListener("click", () => setView(button.dataset.view));
-    });
   }
 
-  function onWheel(event) {
-    event.preventDefault();
-    const direction = event.deltaY < 0 ? 1.12 : 0.9;
-    const mouse = screenToSvg(event.clientX, event.clientY);
-    const nextK = clamp(state.transform.k * direction, 0.82, 3.25);
-    const ratio = nextK / state.transform.k;
-    state.transform.x = mouse.x - (mouse.x - state.transform.x) * ratio;
-    state.transform.y = mouse.y - (mouse.y - state.transform.y) * ratio;
-    state.transform.k = nextK;
-    clampTransform();
-    applyTransform();
+  function setActiveStadium(id, active) {
+    const marker = state.markerObjects.get(id);
+    const label = state.labelObjects.get(id);
+    marker?.el.classList.toggle("is-active", active);
+    label?.el.classList.toggle("is-active", active);
   }
 
-  function onPointerDown(event) {
-    if (event.button !== 0) return;
-    if (event.target.closest && event.target.closest(".marker-node")) return;
-    state.dragging = true;
-    els.mapStage.classList.add("dragging");
-    els.svg.setPointerCapture?.(event.pointerId);
-    state.pointerStart = screenToSvg(event.clientX, event.clientY);
-    state.transformStart = { ...state.transform };
-  }
+  function updateLeaderLines() {
+    if (!state.map || !els.leaderLayer) return;
+    const width = els.mapStage.clientWidth;
+    const height = els.mapStage.clientHeight;
+    els.leaderLayer.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    els.leaderLayer.innerHTML = "";
 
-  function onPointerMove(event) {
-    if (three.cursor) {
-      three.cursor.position.set(event.clientX, event.clientY, 2);
-    }
-    if (!state.dragging) return;
-    const now = screenToSvg(event.clientX, event.clientY);
-    state.transform.x = state.transformStart.x + (now.x - state.pointerStart.x);
-    state.transform.y = state.transformStart.y + (now.y - state.pointerStart.y);
-    clampTransform();
-    applyTransform();
-  }
-
-  function onPointerUp() {
-    state.dragging = false;
-    els.mapStage.classList.remove("dragging");
-  }
-
-  function zoomBy(factor) {
-    const center = { x: VIEW.w / 2, y: VIEW.h / 2 };
-    const nextK = clamp(state.transform.k * factor, 0.82, 3.25);
-    const ratio = nextK / state.transform.k;
-    animateTransform({
-      x: center.x - (center.x - state.transform.x) * ratio,
-      y: center.y - (center.y - state.transform.y) * ratio,
-      k: nextK
+    visibleStadiums().forEach((stadium) => {
+      const labelItem = state.labelObjects.get(stadium.id);
+      if (!labelItem) return;
+      const p = state.map.project([stadium.lng, stadium.lat]);
+      const o = labelItem.offset;
+      const endX = p.x + o.dx;
+      const endY = p.y + o.dy;
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      const midX = p.x + (endX - p.x) * 0.55;
+      const d = `M ${p.x.toFixed(1)} ${p.y.toFixed(1)} C ${midX.toFixed(1)} ${p.y.toFixed(1)}, ${midX.toFixed(1)} ${endY.toFixed(1)}, ${endX.toFixed(1)} ${endY.toFixed(1)}`;
+      line.setAttribute("d", d);
+      line.setAttribute("class", `leader-line ${countryClass(stadium.country)}`);
+      els.leaderLayer.appendChild(line);
     });
   }
 
-  function applyTransform() {
-    els.viewport.setAttribute("transform", `translate(${state.transform.x} ${state.transform.y}) scale(${state.transform.k})`);
-    updateThreePositions();
-    if (state.selectedId) positionDetailAtStadium(getStadium(state.selectedId), false);
-  }
-
-  function clampTransform() {
-    const k = state.transform.k;
-    const margin = 420 * k;
-    state.transform.x = clamp(state.transform.x, -VIEW.w * (k - 0.72) - margin, margin);
-    state.transform.y = clamp(state.transform.y, -VIEW.h * (k - 0.72) - margin, margin);
-  }
-
-  function animateTransform(target, onDone) {
-    const start = { ...state.transform };
-    const duration = state.reduceMotion ? 0 : 820;
-    const startTime = performance.now();
-
-    const tick = (now) => {
-      const t = duration === 0 ? 1 : clamp((now - startTime) / duration, 0, 1);
-      const e = easeOutCubic(t);
-      state.transform.x = lerp(start.x, target.x, e);
-      state.transform.y = lerp(start.y, target.y, e);
-      state.transform.k = lerp(start.k, target.k, e);
-      clampTransform();
-      applyTransform();
-      if (t < 1) requestAnimationFrame(tick);
-      else if (onDone) onDone();
-    };
-    requestAnimationFrame(tick);
-  }
-
-  function flyToStadium(stadium, onDone) {
-    const p = project(stadium);
-    const mobile = window.innerWidth <= 900;
-    const targetK = mobile ? 1.42 : 1.35;
-    const offsetX = mobile ? 0 : -120;
-    const offsetY = mobile ? -70 : 0;
-    animateTransform({
-      x: VIEW.w / 2 + offsetX - p.x * targetK,
-      y: VIEW.h / 2 + offsetY - p.y * targetK,
-      k: targetK
-    }, onDone);
-  }
-
-  function screenToSvg(clientX, clientY) {
-    const pt = els.svg.createSVGPoint();
-    pt.x = clientX;
-    pt.y = clientY;
-    const matrix = els.svg.getScreenCTM();
-    if (!matrix) return { x: clientX, y: clientY };
-    const converted = pt.matrixTransform(matrix.inverse());
-    return { x: converted.x, y: converted.y };
-  }
-
-  function contentPointToClient(point) {
-    const pt = els.svg.createSVGPoint();
-    pt.x = point.x;
-    pt.y = point.y;
-    const matrix = els.viewport.getScreenCTM();
-    if (!matrix) return { x: point.x, y: point.y };
-    const converted = pt.matrixTransform(matrix);
-    return { x: converted.x, y: converted.y };
-  }
-
-  function project(stadium) {
-    const minLng = -132;
-    const maxLng = -64;
-    const minLat = 17.5;
-    const maxLat = 54.5;
-    const x = 115 + ((stadium.lng - minLng) / (maxLng - minLng)) * 1370;
-    const y = 80 + ((maxLat - stadium.lat) / (maxLat - minLat)) * 760;
-    return { x, y };
-  }
-
-  function curvedPath(a, b, intensity) {
-    const mx = (a.x + b.x) / 2;
-    const my = (a.y + b.y) / 2;
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const cx = mx - dy * intensity;
-    const cy = my + dx * intensity;
-    return `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
-  }
-
-  function showHover(stadium, clientX, clientY) {
-    state.hoverId = stadium.id;
-    els.hoverCard.innerHTML = stadiumCardHTML(stadium, { compact: true });
+  function renderHoverCard(stadium, x, y) {
+    const games = stadiumMatches(stadium.id);
+    const next = nextMatchForStadium(stadium.id);
+    els.hoverCard.innerHTML = `
+      ${mediaBlock(stadium)}
+      <div class="card-body">
+        <div class="card-kicker"><span>${stadium.countryFlag || ""} ${escapeHTML(stadium.country)}</span><span>${escapeHTML(stadium.region || "Host")}</span></div>
+        <h2 class="card-title">${escapeHTML(stadium.name)}</h2>
+        <p class="card-subtitle">${escapeHTML(stadium.city)} · ${escapeHTML(stadium.airportCode || "")}</p>
+        <div class="stat-grid">
+          <div class="stat"><span>Capacity</span><strong>${formatCapacity(stadium.capacity)}</strong></div>
+          <div class="stat"><span>Games</span><strong>${games.length}</strong></div>
+          <div class="stat"><span>Status</span><strong>${titleCase(stadiumStatus(stadium))}</strong></div>
+        </div>
+        ${next ? nextMatchBlock(next) : ""}
+      </div>
+    `;
     els.hoverCard.classList.remove("hidden");
-    moveFloatingCard(els.hoverCard, clientX, clientY);
-    setMarkerClass(stadium.id, "hovered", true);
+    positionFloatingCard(els.hoverCard, x + 22, y + 18);
   }
 
-  function hideHover() {
-    if (state.hoverId) setMarkerClass(state.hoverId, "hovered", false);
-    state.hoverId = null;
-    els.hoverCard.classList.add("hidden");
-  }
-
-  function selectStadium(stadium, clientX, clientY, fly = true) {
+  function selectStadium(stadium, clientX, clientY) {
+    if (state.selectedId && state.selectedId !== stadium.id) setActiveStadium(state.selectedId, false);
     state.selectedId = stadium.id;
-    document.querySelectorAll(".marker-node.selected").forEach((m) => m.classList.remove("selected"));
-    setMarkerClass(stadium.id, "selected", true);
-    els.detailCard.innerHTML = detailCardHTML(stadium);
-    bindDetailCardActions(stadium);
-    els.detailCard.classList.remove("hidden");
-    moveFloatingCard(els.detailCard, clientX, clientY);
-    if (fly) {
-      flyToStadium(stadium, () => positionDetailAtStadium(stadium));
-    } else {
-      positionDetailAtStadium(stadium);
+    setActiveStadium(stadium.id, true);
+    renderDetailCard(stadium);
+    const screen = screenPoint(stadium);
+    state.cardPosition = { x: Number.isFinite(clientX) ? clientX : screen.x, y: Number.isFinite(clientY) ? clientY : screen.y };
+    updateDetailCardPosition();
+    els.hoverCard.classList.add("hidden");
+
+    const targetZoom = window.matchMedia("(max-width: 760px)").matches ? 3.65 : 4.05;
+    if (state.map) {
+      state.map.flyTo({
+        center: [stadium.lng, stadium.lat],
+        zoom: Math.max(state.map.getZoom(), targetZoom),
+        speed: state.reduceMotion ? 4 : 0.68,
+        curve: 1.18,
+        essential: true
+      });
     }
   }
 
-  function closeDetail() {
-    if (state.selectedId) setMarkerClass(state.selectedId, "selected", false);
+  function renderDetailCard(stadium) {
+    const games = stadiumMatches(stadium.id);
+    const next = nextMatchForStadium(stadium.id);
+    els.detailCard.innerHTML = `
+      <button type="button" class="close-btn" id="closeDetail" aria-label="Close stadium card">×</button>
+      ${mediaBlock(stadium)}
+      <div class="card-body">
+        <div class="card-kicker"><span>${stadium.countryFlag || ""} ${escapeHTML(stadium.country)}</span><span>${escapeHTML(stadium.region || "Host")}</span></div>
+        <h2 class="card-title">${escapeHTML(stadium.name)}</h2>
+        <p class="card-subtitle">${escapeHTML(stadium.city)} · Capacity ${formatCapacity(stadium.capacity)} · ${games.length} matches</p>
+        <div class="stat-grid">
+          <div class="stat"><span>Airport</span><strong>${escapeHTML(stadium.airportCode || "TBC")}</strong></div>
+          <div class="stat"><span>Weather</span><strong>${next?.weather || "TBC"}</strong></div>
+          <div class="stat"><span>Status</span><strong>${titleCase(stadiumStatus(stadium))}</strong></div>
+        </div>
+        ${next ? nextMatchBlock(next) : ""}
+        <div style="height:14px"></div>
+        <div class="match-list">
+          ${games.map(matchRow).join("")}
+        </div>
+      </div>
+    `;
+    els.detailCard.classList.remove("hidden");
+    document.getElementById("closeDetail")?.addEventListener("click", closeDetailCard);
+  }
+
+  function closeDetailCard() {
+    if (state.selectedId) setActiveStadium(state.selectedId, false);
     state.selectedId = null;
     els.detailCard.classList.add("hidden");
   }
 
-  function positionDetailAtStadium(stadium, animate = true) {
-    if (!stadium || els.detailCard.classList.contains("hidden")) return;
-    const point = contentPointToClient(project(stadium));
-    const rect = els.detailCard.getBoundingClientRect();
-    if (window.innerWidth <= 900) return;
-    const x = point.x + 24;
-    const y = point.y - rect.height / 2;
-    positionElement(els.detailCard, x, y, animate);
+  function updateDetailCardPosition() {
+    if (!state.selectedId || els.detailCard.classList.contains("hidden")) return;
+    const stadium = findStadium(state.selectedId);
+    if (!stadium) return;
+    const screen = screenPoint(stadium);
+    positionFloatingCard(els.detailCard, screen.x + 30, screen.y - 42);
   }
 
-  function moveFloatingCard(card, clientX, clientY) {
-    if (window.innerWidth <= 900 && card === els.detailCard) return;
-    const x = clientX + 22;
-    const y = clientY + 18;
-    positionElement(card, x, y, false);
+  function positionFloatingCard(card, x, y) {
+    if (!card || window.matchMedia("(max-width: 960px)").matches && card === els.detailCard) return;
+    const wasHidden = card.classList.contains("hidden");
+    if (wasHidden) {
+      card.style.visibility = "hidden";
+      card.classList.remove("hidden");
+    }
+    const rect = card.getBoundingClientRect();
+    const margin = 16;
+    const left = clamp(x, margin, window.innerWidth - rect.width - margin);
+    const top = clamp(y, margin, window.innerHeight - rect.height - margin);
+    card.style.left = `${left}px`;
+    card.style.top = `${top}px`;
+    card.style.right = "auto";
+    card.style.bottom = "auto";
+    if (wasHidden) {
+      card.classList.add("hidden");
+      card.style.visibility = "";
+    }
   }
 
-  function positionElement(el, x, y) {
-    const margin = 14;
-    const rect = el.getBoundingClientRect();
-    const width = rect.width || 360;
-    const height = rect.height || 240;
-    const nextX = clamp(x, margin, window.innerWidth - width - margin);
-    const nextY = clamp(y, margin, window.innerHeight - height - margin);
-    el.style.left = `${nextX}px`;
-    el.style.top = `${nextY}px`;
-    el.style.right = "auto";
-    el.style.bottom = "auto";
-  }
-
-  function stadiumCardHTML(stadium) {
-    const stadiumMatches = matchesForStadium(stadium.id);
-    const next = nextMatch(stadium.id);
-    const status = stadiumStatus(stadium);
+  function mediaBlock(stadium) {
+    const src = stadium.image || "";
     return `
-      <div class="card-image">
-        <span class="image-fallback">${escapeHTML(stadium.city)}</span>
-        <img src="${escapeHTML(stadium.image || "")}" alt="${escapeHTML(stadium.name)}" onload="this.classList.add('loaded')" onerror="this.remove()">
-      </div>
-      <div class="card-header">
-        <div>
-          <h3 class="card-title">${escapeHTML(stadium.name)}</h3>
-          <div class="card-city">${stadium.countryFlag || ""} ${escapeHTML(stadium.city)}, ${escapeHTML(stadium.country)}</div>
-        </div>
-        <span class="status-chip ${status}">${labelStatus(status)}</span>
-      </div>
-      <div class="metric-grid">
-        <div class="metric"><span>Capacity</span><strong>${formatCapacity(stadium.capacity)}</strong></div>
-        <div class="metric"><span>Matches</span><strong>${stadiumMatches.length || "—"}</strong></div>
-        <div class="metric"><span>Region</span><strong>${escapeHTML(stadium.region || "—")}</strong></div>
-      </div>
-      ${next ? nextMatchHTML(next) : `<div class="next-match"><div class="next-label">Next match</div><div class="match-date">No match connected yet.</div></div>`}
-    `;
-  }
-
-  function detailCardHTML(stadium) {
-    const stadiumMatches = matchesForStadium(stadium.id);
-    return `
-      <button type="button" class="close-btn" data-close-detail aria-label="Close">×</button>
-      ${stadiumCardHTML(stadium)}
-      <div class="match-list">
-        ${stadiumMatches.length ? stadiumMatches.map(matchItemHTML).join("") : `<div class="match-item"><div class="match-date">No fixture data connected to this stadium yet.</div></div>`}
-      </div>
-      <div class="card-actions">
-        <button type="button" class="primary-btn" data-view-stadium>View all matches here</button>
-        <button type="button" class="ghost-btn" data-reset-map>Reset map</button>
+      <div class="card-media" data-src="${escapeHTML(src)}">
+        ${src ? `<img src="${escapeHTML(src)}" alt="${escapeHTML(stadium.name)}" onerror="this.parentElement.classList.remove('has-image'); this.remove();" onload="this.parentElement.classList.add('has-image');" />` : ""}
       </div>
     `;
   }
 
-  function bindDetailCardActions(stadium) {
-    const close = els.detailCard.querySelector("[data-close-detail]");
-    const view = els.detailCard.querySelector("[data-view-stadium]");
-    const reset = els.detailCard.querySelector("[data-reset-map]");
-    close?.addEventListener("click", closeDetail);
-    view?.addEventListener("click", () => {
-      state.filters.search = stadium.city;
-      els.searchInput.value = stadium.city;
-      renderMatchesView();
-      setView("matches");
-    });
-    reset?.addEventListener("click", () => animateTransform({ x: 0, y: 0, k: 1 }));
-  }
-
-  function nextMatchHTML(match) {
+  function nextMatchBlock(match) {
     const a = team(match.teamA);
     const b = team(match.teamB);
     return `
       <div class="next-match">
-        <div class="next-label">Next match</div>
-        <div class="match-line">
-          <span>${a.flag} ${escapeHTML(a.name)}</span>
-          <span class="vs">VS</span>
-          <span>${b.flag} ${escapeHTML(b.name)}</span>
-        </div>
-        <div class="match-date">Match ${escapeHTML(match.matchNumber || "—")} · ${escapeHTML(match.label || match.round)} · ${formatDate(match.date)}</div>
-        <div class="match-date">${escapeHTML(match.weather || "Weather TBC")}</div>
+        <small>Next match · ${escapeHTML(match.round)}</small>
+        <strong>${a.flag} ${escapeHTML(a.name)} <span class="vs-pill">VS</span> ${b.flag} ${escapeHTML(b.name)}</strong>
+        <time>${formatDate(match.date)} · Match ${match.matchNumber}</time>
       </div>
     `;
   }
 
-  function matchItemHTML(match) {
+  function matchRow(match) {
     const a = team(match.teamA);
     const b = team(match.teamB);
     return `
-      <div class="match-item">
-        <div class="match-line">
-          <span>${a.flag} ${escapeHTML(a.name)}</span>
-          <span class="vs">VS</span>
-          <span>${b.flag} ${escapeHTML(b.name)}</span>
+      <article class="match-row">
+        <div class="match-topline"><span>Match ${match.matchNumber} · ${escapeHTML(match.label || match.round)}</span><span>${escapeHTML(matchStatus(match))}</span></div>
+        <div class="versus">
+          <span class="team-side">${a.flag} ${escapeHTML(a.name)}</span>
+          <span class="vs-pill">VS</span>
+          <span class="team-side" style="text-align:right">${b.flag} ${escapeHTML(b.name)}</span>
         </div>
-        <div class="match-meta">
-          <span>${formatDate(match.date)}</span>
-          <span>${escapeHTML(match.round)}</span>
-          <span>${escapeHTML(match.label || match.score || labelStatus(match.status))}</span>
-        </div>
-        <div class="match-date">${escapeHTML(match.weather || "Weather TBC")}</div>
-      </div>
+        <div class="match-topline"><span>${formatDate(match.date)}</span><span>${escapeHTML(match.round)}</span></div>
+      </article>
     `;
   }
 
-  function renderMatchesView() {
-    const list = filteredMatches();
-    els.matchesView.innerHTML = `
-      <h2 class="panel-title">Matches</h2>
-      <div class="view-grid">
-        ${list.map((match) => {
-          const stadium = getStadium(match.stadiumId);
-          const a = team(match.teamA);
-          const b = team(match.teamB);
-          return `
-            <article class="compact-card" data-match-stadium="${escapeHTML(match.stadiumId)}">
-              <span class="round-chip">Match ${escapeHTML(match.matchNumber || "—")} · ${escapeHTML(match.round)}</span>
-              <div style="height:10px"></div>
-              <div class="match-line"><span>${a.flag} ${escapeHTML(a.name)}</span><span class="vs">VS</span><span>${b.flag} ${escapeHTML(b.name)}</span></div>
-              <div class="match-date">${formatDate(match.date)}</div>
-              <div class="match-date">${escapeHTML(match.label || "")}</div>
-              <div class="match-date">${stadium?.countryFlag || ""} ${escapeHTML(stadium?.city || "Unknown")}</div>
-            </article>
-          `;
-        }).join("") || `<div class="compact-card">No matches match the current filters.</div>`}
-      </div>
-    `;
-    els.matchesView.querySelectorAll("[data-match-stadium]").forEach((card) => {
-      card.addEventListener("click", () => {
-        const stadium = getStadium(card.dataset.matchStadium);
-        if (stadium) {
-          setView("map");
-          const p = contentPointToClient(project(stadium));
-          selectStadium(stadium, p.x, p.y, true);
-        }
-      });
-    });
+  function syncMapOverlays() {
+    updateLeaderLines();
+    updateThreePositions();
+    updateDetailCardPosition();
   }
 
-  function renderBracketView() {
-    const rounds = DATA.stages?.filter((stage) => stage.name !== "Group Stage").sort((a, b) => a.order - b.order).map((stage) => stage.name) || ["Round of 32", "Round of 16", "Quarterfinals", "Semifinals", "Third Place Playoff", "Final"];
-    const knockout = matches.filter((m) => rounds.includes(m.round) || m.status === "final" || m.status === "knockout");
-    const fallback = knockout.length ? knockout : matches.slice(-8);
-    els.bracketView.innerHTML = `
-      <h2 class="panel-title">Knockout Tree</h2>
-      <div class="bracket">
-        ${rounds.map((round, index) => {
-          const roundMatches = fallback.filter((m) => m.round === round || (round === "Final" && m.status === "final"));
-          const entries = roundMatches.length ? roundMatches : fallback.slice(index * 2, index * 2 + Math.max(1, 4 - index));
-          return `
-            <div class="bracket-col">
-              <div class="bracket-title">${round}</div>
-              ${entries.map((m) => {
-                const a = team(m.teamA);
-                const b = team(m.teamB);
-                const stadium = getStadium(m.stadiumId);
-                return `
-                  <article class="bracket-match ${round === "Final" ? "final" : ""}">
-                    <div class="match-line"><span>${a.flag} ${escapeHTML(a.name)}</span><span class="vs">VS</span><span>${b.flag} ${escapeHTML(b.name)}</span></div>
-                    <div class="match-date">Match ${escapeHTML(m.matchNumber || "—")} · ${stadium?.city || "TBC"} · ${formatShortDate(m.date)}</div>
-                  </article>
-                `;
-              }).join("")}
-            </div>
-          `;
-        }).join("")}
-      </div>
-    `;
-  }
-
-  function setView(view) {
-    state.activeView = view;
-    document.querySelectorAll("[data-view]").forEach((button) => {
-      button.classList.toggle("active", button.dataset.view === view);
-    });
-    els.matchesView.classList.toggle("hidden", view !== "matches");
-    els.bracketView.classList.toggle("hidden", view !== "bracket");
-    if (view !== "map") els.filterPanel.classList.add("hidden");
-  }
-
-  function populateFilters() {
-    unique(stadiums.map((s) => s.country)).forEach((country) => option(els.countryFilter, country, country));
-    unique(["upcoming", "live", "finished", "knockout", "final", ...matches.map((m) => m.status)]).forEach((status) => option(els.statusFilter, status, labelStatus(status)));
-    unique(matches.map((m) => m.round)).forEach((round) => option(els.roundFilter, round, round));
-    Object.entries(teams).sort((a, b) => a[1].name.localeCompare(b[1].name)).forEach(([code, t]) => option(els.teamFilter, code, `${t.flag} ${t.name}`));
-  }
-
-  function option(select, value, text) {
-    const opt = document.createElement("option");
-    opt.value = value;
-    opt.textContent = text;
-    select.appendChild(opt);
-  }
-
-  function readFilters() {
-    state.filters.search = els.searchInput.value.trim().toLowerCase();
-    state.filters.country = els.countryFilter.value;
-    state.filters.status = els.statusFilter.value;
-    state.filters.round = els.roundFilter.value;
-    state.filters.team = els.teamFilter.value;
-    applyFiltersToMarkers();
-    renderMatchesView();
-  }
-
-  function clearFilters() {
-    els.searchInput.value = "";
-    els.countryFilter.value = "all";
-    els.statusFilter.value = "all";
-    els.roundFilter.value = "all";
-    els.teamFilter.value = "all";
-    readFilters();
-  }
-
-  function applyFiltersToMarkers() {
-    stadiums.forEach((stadium) => {
-      const visible = stadiumPassesFilters(stadium);
-      const marker = document.querySelector(`.marker-node[data-id="${cssEscape(stadium.id)}"]`);
-      marker?.classList.toggle("dim", !visible);
-    });
-  }
-
-  function stadiumPassesFilters(stadium) {
-    const f = state.filters;
-    const stadiumMatches = matchesForStadium(stadium.id);
-    if (f.country !== "all" && stadium.country !== f.country) return false;
-    if (f.status !== "all" && stadiumStatus(stadium) !== f.status && !stadiumMatches.some((m) => m.status === f.status)) return false;
-    if (f.round !== "all" && !stadiumMatches.some((m) => m.round === f.round)) return false;
-    if (f.team !== "all" && !stadiumMatches.some((m) => m.teamA === f.team || m.teamB === f.team)) return false;
-    if (f.search) {
-      const haystack = [
-        stadium.name,
-        stadium.city,
-        stadium.country,
-        stadium.region,
-        ...stadiumMatches.flatMap((m) => [team(m.teamA).name, team(m.teamB).name, m.round])
-      ].join(" ").toLowerCase();
-      if (!haystack.includes(f.search)) return false;
-    }
-    return true;
-  }
-
-  function filteredMatches() {
-    return matches.filter((match) => {
-      const stadium = getStadium(match.stadiumId);
-      if (!stadium) return false;
-      if (state.filters.country !== "all" && stadium.country !== state.filters.country) return false;
-      if (state.filters.status !== "all" && match.status !== state.filters.status && stadiumStatus(stadium) !== state.filters.status) return false;
-      if (state.filters.round !== "all" && match.round !== state.filters.round) return false;
-      if (state.filters.team !== "all" && match.teamA !== state.filters.team && match.teamB !== state.filters.team) return false;
-      if (state.filters.search) {
-        const haystack = [stadium.name, stadium.city, stadium.country, match.round, team(match.teamA).name, team(match.teamB).name].join(" ").toLowerCase();
-        if (!haystack.includes(state.filters.search)) return false;
-      }
-      return true;
-    });
-  }
-
-  function renderLegend() {
-    const byCountry = stadiums.reduce((acc, s) => {
-      acc[s.country] = (acc[s.country] || 0) + 1;
-      return acc;
-    }, {});
-    document.getElementById("usCount").textContent = `${byCountry["United States"] || 0} stadiums`;
-    document.getElementById("mxCount").textContent = `${byCountry.Mexico || 0} stadiums`;
-    document.getElementById("caCount").textContent = `${byCountry.Canada || 0} stadiums`;
-  }
-
-  function toggleTheme() {
-    const next = els.html.dataset.theme === "dark" ? "light" : "dark";
-    els.html.dataset.theme = next;
-    localStorage.setItem("wc-map-theme", next);
-  }
-
-  function loadThreeScript() {
-    if (window.THREE) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js";
-      script.async = true;
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-  }
-
-  function initThreeAtmosphere() {
-    if (!window.THREE || !els.threeCanvas) {
-      console.warn("Three.js is not loaded. The map will still work without the WebGL atmosphere.");
-      return;
-    }
-
+  function initThreeLayer() {
+    if (!window.THREE || !els.threeCanvas || !state.map) return;
     const THREE = window.THREE;
-    three.enabled = true;
-    three.renderer = new THREE.WebGLRenderer({ canvas: els.threeCanvas, alpha: true, antialias: true, powerPreference: "high-performance" });
-    three.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    three.scene = new THREE.Scene();
-    three.camera = new THREE.OrthographicCamera(0, window.innerWidth, window.innerHeight, 0, -1000, 1000);
+    const t = state.three;
+    t.ok = true;
+    t.scene = new THREE.Scene();
+    t.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
+    t.renderer = new THREE.WebGLRenderer({ canvas: els.threeCanvas, alpha: true, antialias: true, premultipliedAlpha: false });
+    t.renderer.setClearColor(0x000000, 0);
+    t.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
-    const particleCount = window.innerWidth <= 800 ? 110 : 240;
+    const particleTexture = makeGlowTexture();
+    const geo = new THREE.BufferGeometry();
+    const particleCount = window.matchMedia("(max-width: 760px)").matches ? 90 : 170;
     const positions = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
     for (let i = 0; i < particleCount; i += 1) {
-      positions[i * 3] = Math.random() * window.innerWidth;
-      positions[i * 3 + 1] = Math.random() * window.innerHeight;
-      positions[i * 3 + 2] = -12 - Math.random() * 40;
+      positions[i * 3] = (Math.random() - 0.5) * els.mapStage.clientWidth;
+      positions[i * 3 + 1] = (Math.random() - 0.5) * els.mapStage.clientHeight;
+      positions[i * 3 + 2] = -8 - Math.random() * 12;
+      sizes[i] = 1 + Math.random() * 4;
     }
-    const particleGeometry = new THREE.BufferGeometry();
-    particleGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    const particleMaterial = new THREE.PointsMaterial({
-      color: 0xd9b25f,
-      size: 1.35,
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
+    const mat = new THREE.PointsMaterial({
+      map: particleTexture,
+      color: currentTheme() === "light" ? 0x006dff : 0xd9b25f,
       transparent: true,
-      opacity: 0.18,
+      opacity: currentTheme() === "light" ? 0.16 : 0.22,
+      size: 3.2,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     });
-    three.particles = new THREE.Points(particleGeometry, particleMaterial);
-    three.scene.add(three.particles);
+    t.particles = new THREE.Points(geo, mat);
+    t.scene.add(t.particles);
 
-    const texture = makeGlowTexture();
-    stadiums.forEach((stadium) => {
-      const material = new THREE.SpriteMaterial({
-        map: texture,
-        color: colorForStatus(stadiumStatus(stadium)),
-        transparent: true,
-        opacity: 0.58,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
-      });
-      const sprite = new THREE.Sprite(material);
-      const size = stadiumStatus(stadium) === "final" ? 116 : 82;
-      sprite.scale.set(size, size, 1);
-      sprite.userData.stadiumId = stadium.id;
-      three.sprites.set(stadium.id, sprite);
-      three.scene.add(sprite);
-    });
-
-    const cursorMaterial = new THREE.SpriteMaterial({
-      map: texture,
-      color: 0x25ddff,
-      transparent: true,
-      opacity: 0.08,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending
-    });
-    three.cursor = new THREE.Sprite(cursorMaterial);
-    three.cursor.scale.set(210, 210, 1);
-    three.cursor.position.set(window.innerWidth / 2, window.innerHeight / 2, 1);
-    three.scene.add(three.cursor);
-
+    visibleStadiums().forEach((stadium) => addThreeSprite(stadium));
     resizeThree();
-    animateThree();
+    updateThreePositions();
+    if (!state.reduceMotion) animateThree();
+    else t.renderer.render(t.scene, t.camera);
+    window.addEventListener("resize", () => {
+      resizeThree();
+      updateThreePositions();
+    });
   }
 
-  function resizeThree() {
-    if (!three.enabled) return;
-    three.width = window.innerWidth;
-    three.height = window.innerHeight;
-    three.renderer.setSize(three.width, three.height, false);
-    three.camera.left = 0;
-    three.camera.right = three.width;
-    three.camera.top = 0;
-    three.camera.bottom = three.height;
-    three.camera.updateProjectionMatrix();
+  function addThreeSprite(stadium) {
+    if (!state.three.ok || !window.THREE || state.three.sprites.has(stadium.id)) return;
+    const THREE = window.THREE;
+    const texture = makeGlowTexture();
+    const color = stadium.country === "Canada" ? 0x2aa8ff : stadium.country === "Mexico" ? 0xd9a232 : 0xe66d55;
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      color,
+      transparent: true,
+      opacity: 0.42,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(72, 72, 1);
+    sprite.userData = { stadiumId: stadium.id, baseScale: stadiumStatus(stadium) === "final" ? 96 : 72 };
+    state.three.scene.add(sprite);
+    state.three.sprites.set(stadium.id, sprite);
+  }
+
+  function rebuildThreeSprites() {
+    if (!state.three.ok) return;
+    state.three.sprites.forEach((sprite) => state.three.scene.remove(sprite));
+    state.three.sprites.clear();
+    visibleStadiums().forEach((stadium) => addThreeSprite(stadium));
+    updateThreePositions();
   }
 
   function updateThreePositions() {
-    if (!three.enabled) return;
-    stadiums.forEach((stadium) => {
-      const sprite = three.sprites.get(stadium.id);
-      if (!sprite) return;
-      const screen = contentPointToClient(project(stadium));
-      sprite.position.set(screen.x, screen.y, 0);
-      sprite.visible = screen.x > -180 && screen.x < window.innerWidth + 180 && screen.y > -180 && screen.y < window.innerHeight + 180;
+    if (!state.three.ok || !state.map) return;
+    const width = els.mapStage.clientWidth;
+    const height = els.mapStage.clientHeight;
+    state.three.sprites.forEach((sprite, id) => {
+      const stadium = findStadium(id);
+      if (!stadium || !isVisibleStadium(stadium)) {
+        sprite.visible = false;
+        return;
+      }
+      const p = state.map.project([stadium.lng, stadium.lat]);
+      sprite.position.set(p.x - width / 2, height / 2 - p.y, -1);
+      sprite.visible = p.x > -80 && p.x < width + 80 && p.y > -80 && p.y < height + 80;
     });
   }
 
+  function resizeThree() {
+    if (!state.three.ok) return;
+    const width = Math.max(1, els.mapStage.clientWidth);
+    const height = Math.max(1, els.mapStage.clientHeight);
+    const t = state.three;
+    t.camera.left = -width / 2;
+    t.camera.right = width / 2;
+    t.camera.top = height / 2;
+    t.camera.bottom = -height / 2;
+    t.camera.updateProjectionMatrix();
+    t.renderer.setSize(width, height, false);
+  }
+
   function animateThree() {
-    if (!three.enabled) return;
-    const time = performance.now() * 0.001;
-    if (three.particles) {
-      three.particles.rotation.z = Math.sin(time * 0.08) * 0.018;
-      const positions = three.particles.geometry.attributes.position.array;
-      for (let i = 0; i < positions.length; i += 3) {
-        positions[i + 1] += 0.035;
-        if (positions[i + 1] > window.innerHeight + 20) positions[i + 1] = -20;
+    const t = state.three;
+    if (!t.ok) return;
+    t.clock += 0.012;
+    if (t.particles) {
+      t.particles.rotation.z += 0.00045;
+      const pos = t.particles.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i += 1) {
+        const y = pos.getY(i) + Math.sin(t.clock + i) * 0.013;
+        pos.setY(i, y);
       }
-      three.particles.geometry.attributes.position.needsUpdate = true;
+      pos.needsUpdate = true;
     }
-    three.sprites.forEach((sprite) => {
-      const base = sprite.userData.baseOpacity || 0.58;
-      sprite.material.opacity = base + Math.sin(time * 2.1 + sprite.position.x * 0.01) * 0.08;
+    t.sprites.forEach((sprite, id) => {
+      const stadium = findStadium(id);
+      const selectedBoost = id === state.selectedId ? 1.34 : 1;
+      const base = sprite.userData.baseScale || 72;
+      const pulse = 1 + Math.sin(t.clock * 3.0 + id.length) * 0.10;
+      sprite.scale.set(base * pulse * selectedBoost, base * pulse * selectedBoost, 1);
+      sprite.material.opacity = id === state.selectedId ? 0.64 : stadiumStatus(stadium) === "final" ? 0.58 : 0.40;
     });
-    three.renderer.render(three.scene, three.camera);
-    three.raf = requestAnimationFrame(animateThree);
+    t.renderer.render(t.scene, t.camera);
+    t.raf = requestAnimationFrame(animateThree);
   }
 
   function makeGlowTexture() {
@@ -901,146 +724,362 @@
     canvas.width = 128;
     canvas.height = 128;
     const ctx = canvas.getContext("2d");
-    const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-    gradient.addColorStop(0, "rgba(255,255,255,0.95)");
-    gradient.addColorStop(0.17, "rgba(255,255,255,0.52)");
-    gradient.addColorStop(0.42, "rgba(255,255,255,0.16)");
-    gradient.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = gradient;
+    const grd = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grd.addColorStop(0, "rgba(255,255,255,1)");
+    grd.addColorStop(0.24, "rgba(255,255,255,0.62)");
+    grd.addColorStop(0.54, "rgba(255,255,255,0.18)");
+    grd.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grd;
     ctx.fillRect(0, 0, 128, 128);
     return new window.THREE.CanvasTexture(canvas);
   }
 
-  function setMarkerClass(id, cls, on) {
-    const marker = document.querySelector(`.marker-node[data-id="${cssEscape(id)}"]`);
-    marker?.classList.toggle(cls, on);
+  function bindEvents() {
+    document.querySelectorAll("[data-view]").forEach((button) => {
+      button.addEventListener("click", () => setView(button.dataset.view));
+    });
+
+    document.getElementById("filterToggle")?.addEventListener("click", toggleFilters);
+    document.getElementById("mobileFilterToggle")?.addEventListener("click", toggleFilters);
+    document.getElementById("closeFilters")?.addEventListener("click", () => els.filterPanel.classList.add("hidden"));
+    document.getElementById("clearFilters")?.addEventListener("click", clearFilters);
+    document.getElementById("themeToggle")?.addEventListener("click", toggleTheme);
+    document.getElementById("zoomIn")?.addEventListener("click", () => state.map?.zoomIn({ duration: 420 }));
+    document.getElementById("zoomOut")?.addEventListener("click", () => state.map?.zoomOut({ duration: 420 }));
+    document.getElementById("resetMap")?.addEventListener("click", () => fitHostBounds(true));
+
+    [els.searchInput, els.countryFilter, els.statusFilter, els.roundFilter, els.teamFilter].forEach((field) => {
+      field?.addEventListener("input", readFiltersAndRender);
+      field?.addEventListener("change", readFiltersAndRender);
+    });
+
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeDetailCard();
+        els.filterPanel.classList.add("hidden");
+      }
+    });
   }
 
-  function matchesForStadium(stadiumId) {
-    return matches
-      .filter((m) => m.stadiumId === stadiumId)
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+  function toggleFilters() {
+    els.filterPanel.classList.toggle("hidden");
   }
 
-  function nextMatch(stadiumId) {
-    const connected = matchesForStadium(stadiumId);
-    return connected.find((m) => m.status !== "finished") || connected[0] || null;
+  function toggleTheme() {
+    const next = currentTheme() === "dark" ? "light" : "dark";
+    els.html.dataset.theme = next;
+    localStorage.setItem("wc-map-theme", next);
+    document.querySelector("meta[name='theme-color']")?.setAttribute("content", next === "dark" ? "#03130f" : "#f4edda");
+    if (state.map) {
+      state.map.setStyle(makeMapStyle(next));
+      state.map.once("style.load", () => {
+        addMapLayers();
+        renderRoutes();
+        renderCountryWatermarks();
+      });
+    }
+    if (state.three.particles) {
+      state.three.particles.material.color.set(next === "light" ? 0x006dff : 0xd9b25f);
+      state.three.particles.material.opacity = next === "light" ? 0.16 : 0.22;
+    }
+  }
+
+  function currentTheme() {
+    return els.html?.dataset.theme === "light" ? "light" : "dark";
+  }
+
+  function setView(view) {
+    state.activeView = view;
+    document.querySelectorAll("[data-view]").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
+    els.matchesView.classList.toggle("hidden", view !== "matches");
+    els.bracketView.classList.toggle("hidden", view !== "bracket");
+    if (view === "map") {
+      requestAnimationFrame(() => state.map?.resize());
+    }
+  }
+
+  function populateFilters() {
+    fillSelect(els.countryFilter, unique(stadiums.map((s) => s.country)).sort(), "All countries");
+    fillSelect(els.statusFilter, ["upcoming", "live", "finished", "knockout", "final"], "All statuses", titleCase);
+    fillSelect(els.roundFilter, unique(matches.map((m) => m.round)).filter(Boolean), "All rounds");
+    const teamOptions = Object.keys(teams).map((code) => ({ value: code, label: `${teams[code].flag || ""} ${teams[code].name}` })).sort((a, b) => a.label.localeCompare(b.label));
+    fillSelectObjects(els.teamFilter, teamOptions, "All teams");
+  }
+
+  function fillSelect(select, values, allLabel, formatter = (v) => v) {
+    if (!select) return;
+    select.innerHTML = `<option value="all">${escapeHTML(allLabel)}</option>` + values.map((value) => `<option value="${escapeHTML(value)}">${escapeHTML(formatter(value))}</option>`).join("");
+  }
+
+  function fillSelectObjects(select, values, allLabel) {
+    if (!select) return;
+    select.innerHTML = `<option value="all">${escapeHTML(allLabel)}</option>` + values.map((item) => `<option value="${escapeHTML(item.value)}">${escapeHTML(item.label)}</option>`).join("");
+  }
+
+  function readFiltersAndRender() {
+    state.filters.search = (els.searchInput?.value || "").trim().toLowerCase();
+    state.filters.country = els.countryFilter?.value || "all";
+    state.filters.status = els.statusFilter?.value || "all";
+    state.filters.round = els.roundFilter?.value || "all";
+    state.filters.team = els.teamFilter?.value || "all";
+    renderStadiumLayer();
+    renderMatchesView();
+    renderBracketView();
+    rebuildThreeSprites();
+    closeDetailCard();
+  }
+
+  function clearFilters() {
+    if (els.searchInput) els.searchInput.value = "";
+    [els.countryFilter, els.statusFilter, els.roundFilter, els.teamFilter].forEach((select) => { if (select) select.value = "all"; });
+    readFiltersAndRender();
+  }
+
+  function visibleStadiums() {
+    return stadiums.filter(isVisibleStadium);
+  }
+
+  function isVisibleStadium(stadium) {
+    const f = state.filters;
+    const games = stadiumMatches(stadium.id);
+    if (f.country !== "all" && stadium.country !== f.country) return false;
+    if (f.status !== "all" && stadiumStatus(stadium) !== f.status) return false;
+    if (f.round !== "all" && !games.some((m) => m.round === f.round)) return false;
+    if (f.team !== "all" && !games.some((m) => m.teamA === f.team || m.teamB === f.team)) return false;
+    if (f.search) {
+      const haystack = [stadium.name, stadium.city, stadium.country, stadium.region, stadium.airportCode, ...games.flatMap((m) => [team(m.teamA).name, team(m.teamB).name, m.label, m.round])].join(" ").toLowerCase();
+      if (!haystack.includes(f.search)) return false;
+    }
+    return true;
+  }
+
+  function renderLegend() {
+    const counts = stadiums.reduce((acc, s) => {
+      acc[s.country] = (acc[s.country] || 0) + 1;
+      return acc;
+    }, {});
+    const usCount = document.getElementById("usCount");
+    const mxCount = document.getElementById("mxCount");
+    const caCount = document.getElementById("caCount");
+    if (usCount) usCount.textContent = `${counts["United States"] || 0} stadiums`;
+    if (mxCount) mxCount.textContent = `${counts.Mexico || 0} stadiums`;
+    if (caCount) caCount.textContent = `${counts.Canada || 0} stadiums`;
+  }
+
+  function renderMatchesView() {
+    const filtered = filteredMatches();
+    els.matchesView.innerHTML = `
+      <div class="view-header">
+        <div><span class="view-eyebrow">Schedule</span><h2 class="view-title">Matches</h2></div>
+        <span class="view-count">${filtered.length} / ${matches.length} matches</span>
+      </div>
+      <div class="matches-grid">
+        ${filtered.map((match) => {
+          const stadium = findStadium(match.stadiumId);
+          const a = team(match.teamA);
+          const b = team(match.teamB);
+          return `
+            <article class="match-card" data-stadium="${escapeHTML(match.stadiumId)}">
+              <div class="match-meta"><span>Match ${match.matchNumber}</span><span>${escapeHTML(match.round)}</span></div>
+              <h3>${a.flag} ${escapeHTML(a.name)} <span class="vs-pill">VS</span> ${b.flag} ${escapeHTML(b.name)}</h3>
+              <div class="match-meta"><span>${formatDate(match.date)}</span><span>${escapeHTML(stadium?.city || "TBC")}</span></div>
+            </article>
+          `;
+        }).join("")}
+      </div>
+    `;
+    els.matchesView.querySelectorAll(".match-card").forEach((card) => {
+      card.addEventListener("click", () => {
+        const stadium = findStadium(card.dataset.stadium);
+        if (stadium) {
+          setView("map");
+          const p = screenPoint(stadium);
+          selectStadium(stadium, p.x, p.y);
+        }
+      });
+    });
+  }
+
+  function filteredMatches() {
+    const f = state.filters;
+    return matches.filter((match) => {
+      const stadium = findStadium(match.stadiumId);
+      if (!stadium) return false;
+      if (f.country !== "all" && stadium.country !== f.country) return false;
+      if (f.status !== "all" && stadiumStatus(stadium) !== f.status) return false;
+      if (f.round !== "all" && match.round !== f.round) return false;
+      if (f.team !== "all" && match.teamA !== f.team && match.teamB !== f.team) return false;
+      if (f.search) {
+        const a = team(match.teamA);
+        const b = team(match.teamB);
+        const haystack = [stadium.city, stadium.name, stadium.country, a.name, b.name, match.label, match.round].join(" ").toLowerCase();
+        if (!haystack.includes(f.search)) return false;
+      }
+      return true;
+    }).sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+  }
+
+  function renderBracketView() {
+    const rounds = stageOrder.length ? stageOrder.map((s) => s.name || s.stage_name || s).filter(Boolean) : unique(matches.map((m) => m.round));
+    els.bracketView.innerHTML = `
+      <div class="view-header">
+        <div><span class="view-eyebrow">Knockout path</span><h2 class="view-title">Bracket</h2></div>
+        <span class="view-count">Cinematic tree</span>
+      </div>
+      <div class="bracket-grid">
+        ${rounds.map((round) => {
+          const roundMatches = matches.filter((m) => m.round === round);
+          return `
+            <section class="bracket-column">
+              <h3>${escapeHTML(round)}</h3>
+              ${roundMatches.map((match) => {
+                const a = team(match.teamA);
+                const b = team(match.teamB);
+                const stadium = findStadium(match.stadiumId);
+                const finalClass = /final/i.test(round) ? " final-cell" : "";
+                return `
+                  <article class="bracket-cell${finalClass}">
+                    <div class="match-meta"><span>M${match.matchNumber}</span><span>${escapeHTML(stadium?.city || "TBC")}</span></div>
+                    <div style="margin-top:8px;font-weight:850">${a.flag} ${escapeHTML(a.name)}</div>
+                    <div style="color:var(--gold);font-size:10px;font-weight:900;letter-spacing:.14em;margin:3px 0">VS</div>
+                    <div style="font-weight:850">${b.flag} ${escapeHTML(b.name)}</div>
+                  </article>
+                `;
+              }).join("") || `<article class="bracket-cell"><span style="color:var(--muted)">No matches</span></article>`}
+            </section>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function stadiumMatches(stadiumId) {
+    return matches.filter((m) => m.stadiumId === stadiumId).sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+  }
+
+  function nextMatchForStadium(stadiumId) {
+    const now = Date.now();
+    return stadiumMatches(stadiumId).find((m) => Date.parse(m.date) + 2 * 60 * 60 * 1000 >= now) || stadiumMatches(stadiumId)[0] || null;
   }
 
   function stadiumStatus(stadium) {
-    const connected = matchesForStadium(stadium.id);
-    if (connected.some((m) => m.status === "final" || m.round === "Final")) return "final";
-    if (connected.some((m) => m.status === "live")) return "live";
-    if (connected.some((m) => m.status === "knockout")) return "knockout";
-    if (connected.length && connected.every((m) => m.status === "finished")) return "finished";
+    if (!stadium) return "upcoming";
+    const games = stadiumMatches(stadium.id);
+    const now = Date.now();
+    if (games.some((m) => matchStatus(m) === "live")) return "live";
+    if (games.length && games.every((m) => Date.parse(m.date) + 2 * 60 * 60 * 1000 < now)) return "finished";
+    if (games.some((m) => /final/i.test(m.round))) return "final";
+    if (games.some((m) => !/group/i.test(m.round))) return "knockout";
     return stadium.status || "upcoming";
+  }
+
+  function matchStatus(match) {
+    const start = Date.parse(match.date);
+    if (!Number.isFinite(start)) return match.status || "upcoming";
+    const now = Date.now();
+    const liveStart = start - 30 * 60 * 1000;
+    const liveEnd = start + 2.25 * 60 * 60 * 1000;
+    if (now >= liveStart && now <= liveEnd) return "live";
+    if (now > liveEnd) return "finished";
+    return "upcoming";
   }
 
   function team(code) {
     return teams[code] || { name: code || "TBC", flag: "🏳️" };
   }
 
-  function getStadium(id) {
+  function findStadium(id) {
     return stadiums.find((s) => s.id === id);
   }
 
-  function labelStatus(status) {
-    return String(status || "upcoming").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  function screenPoint(stadium) {
+    if (!state.map) return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    const rect = els.mapStage.getBoundingClientRect();
+    const p = state.map.project([stadium.lng, stadium.lat]);
+    return { x: rect.left + p.x, y: rect.top + p.y };
   }
 
-  function compactCity(city) {
-    return city.replace("San Francisco Bay Area", "San Francisco").replace("New York / New Jersey", "New York / NJ").toUpperCase();
+  function fitHostBounds(animated = true) {
+    if (!state.map || !stadiums.length) return;
+    const bounds = new maplibregl.LngLatBounds();
+    stadiums.forEach((s) => bounds.extend([s.lng, s.lat]));
+    state.map.fitBounds(bounds, {
+      padding: window.matchMedia("(max-width: 760px)").matches
+        ? { top: 110, right: 42, bottom: 120, left: 42 }
+        : { top: 124, right: 210, bottom: 108, left: 230 },
+      duration: animated && !state.reduceMotion ? 900 : 0,
+      maxZoom: window.matchMedia("(max-width: 760px)").matches ? 3.35 : 3.55
+    });
+  }
+
+  function initialZoom() {
+    return window.matchMedia("(max-width: 760px)").matches ? 2.55 : 3.05;
+  }
+
+  function showFatalMapMessage(message) {
+    els.map.innerHTML = `<div style="position:absolute;inset:0;display:grid;place-items:center;color:var(--text);padding:30px;text-align:center"><strong>${escapeHTML(message)}</strong></div>`;
+  }
+
+  function countryClass(country) {
+    return `country-${String(country || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+  }
+
+  function shortCity(city) {
+    return String(city || "").replace("New York / New Jersey", "New York / NJ").replace("San Francisco Bay Area", "San Francisco");
   }
 
   function formatCapacity(value) {
-    if (!value) return "—";
-    return Number(value).toLocaleString("en-US").replace(/,/g, " ");
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "TBC";
+    return n.toLocaleString("en-US").replace(/,/g, " ");
   }
 
   function formatDate(value) {
-    if (!value) return "TBC";
+    const raw = String(value || "");
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}).*?([+-]\d{2}:?\d{2})?$/);
+    if (match) {
+      const [, year, month, day, hour, minute, offset] = match;
+      const date = new Date(Number(year), Number(month) - 1, Number(day));
+      const weekday = new Intl.DateTimeFormat("en", { weekday: "short" }).format(date);
+      const monthName = new Intl.DateTimeFormat("en", { month: "short" }).format(date);
+      const zone = offset ? ` UTC${offset.replace(":", "")}` : "";
+      return `${weekday}, ${monthName} ${Number(day)} · ${hour}:${minute}${zone}`;
+    }
     const date = new Date(value);
-    return new Intl.DateTimeFormat("en", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit"
-    }).format(date);
+    if (Number.isNaN(date.getTime())) return "Date TBC";
+    return new Intl.DateTimeFormat("en", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
   }
 
-  function formatShortDate(value) {
-    if (!value) return "TBC";
-    const date = new Date(value);
-    return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(date);
+  function titleCase(value) {
+    return String(value || "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
-  function colorForStatus(status) {
-    const map = {
-      upcoming: 0xd9b25f,
-      live: 0x25ddff,
-      finished: 0xf5f0df,
-      knockout: 0x006dff,
-      final: 0xd9b25f
-    };
-    return map[status] || map.upcoming;
-  }
-
-  function unique(arr) {
-    return [...new Set(arr.filter(Boolean))];
-  }
-
-  function svgEl(tag, attrs = {}) {
-    const node = document.createElementNS(SVG_NS, tag);
-    Object.entries(attrs).forEach(([key, value]) => {
-      if (value === undefined || value === null) return;
-      node.setAttribute(key, String(value));
-    });
-    return node;
-  }
-
-  function clear(node) {
-    while (node.firstChild) node.removeChild(node.firstChild);
+  function unique(values) {
+    return [...new Set(values.filter(Boolean))];
   }
 
   function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
   }
 
-  function lerp(a, b, t) {
-    return a + (b - a) * t;
-  }
-
-  function easeOutCubic(t) {
-    return 1 - Math.pow(1 - t, 3);
-  }
-
-  function cssEscape(value) {
-    if (window.CSS?.escape) return CSS.escape(value);
-    return String(value).replace(/"/g, "\\\"");
-  }
-
   function escapeHTML(value) {
-    return String(value ?? "").replace(/[&<>'"]/g, (char) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      "'": "&#039;",
-      "\"": "&quot;"
-    }[char]));
+    return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
   }
 
   function fallbackData() {
     return {
       meta: { title: "World Cup 2026 Map", defaultTheme: "dark" },
-      teams: {},
+      teams: { MEX: { name: "Mexico", flag: "🇲🇽" }, CAN: { name: "Canada", flag: "🇨🇦" }, USA: { name: "USA", flag: "🇺🇸" } },
+      stages: [],
       stadiums: [
-        { id: "fallback-la", name: "SoFi Stadium", city: "Los Angeles", country: "United States", countryFlag: "🇺🇸", capacity: 70000, lat: 33.9535, lng: -118.3392, status: "upcoming" },
-        { id: "fallback-mx", name: "Estadio Azteca", city: "Mexico City", country: "Mexico", countryFlag: "🇲🇽", capacity: 83000, lat: 19.3029, lng: -99.1505, status: "upcoming" },
-        { id: "fallback-to", name: "BMO Field", city: "Toronto", country: "Canada", countryFlag: "🇨🇦", capacity: 45000, lat: 43.6332, lng: -79.4186, status: "upcoming" }
+        { id: "mexico-city", name: "Estadio Azteca", city: "Mexico City", country: "Mexico", countryFlag: "🇲🇽", capacity: 83000, lat: 19.3029, lng: -99.1505, region: "Central", airportCode: "MEX" },
+        { id: "toronto", name: "BMO Field", city: "Toronto", country: "Canada", countryFlag: "🇨🇦", capacity: 45000, lat: 43.6332, lng: -79.4186, region: "East", airportCode: "YYZ" },
+        { id: "los-angeles", name: "SoFi Stadium", city: "Los Angeles", country: "United States", countryFlag: "🇺🇸", capacity: 70000, lat: 33.9535, lng: -118.3392, region: "West", airportCode: "LAX" }
       ],
-      matches: [],
-      routes: []
+      matches: [
+        { id: "m001", matchNumber: 1, stadiumId: "mexico-city", date: "2026-06-11T15:00:00-06:00", round: "Group Stage", teamA: "MEX", teamB: "CAN", label: "Group A", weather: "Weather TBC" }
+      ],
+      routes: [["mexico-city", "los-angeles", "toronto"]]
     };
   }
 })();

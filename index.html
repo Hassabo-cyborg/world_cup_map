@@ -8,11 +8,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Inter:wght@500;650;750;800;900&display=swap" rel="stylesheet">
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app" id="app">
-    <canvas id="three-bg" aria-hidden="true"></canvas>
     <div class="noise" aria-hidden="true"></div>
 
     <header class="topbar" aria-label="Main navigation">
@@ -33,29 +33,11 @@
       </div>
     </header>
 
-    <section class="map-stage" id="mapStage" aria-label="Interactive World Cup host map">
+    <section class="map-stage" id="mapStage" aria-label="Interactive real World Cup host map">
+      <div id="map" class="real-map" aria-hidden="false"></div>
+      <canvas id="three-bg" aria-hidden="true"></canvas>
+      <svg class="leader-layer" id="leaderLayer" aria-hidden="true"></svg>
       <div class="map-vignette" aria-hidden="true"></div>
-      <svg class="map-svg" id="mapSvg" viewBox="0 0 1600 900" role="img" aria-label="Stylized map of USA, Mexico, and Canada with World Cup host stadiums">
-        <defs>
-          <filter id="softGlow" x="-120%" y="-120%" width="340%" height="340%">
-            <feGaussianBlur stdDeviation="7" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          <filter id="labelShadow" x="-40%" y="-40%" width="180%" height="180%">
-            <feDropShadow dx="0" dy="16" stdDeviation="15" flood-color="#000000" flood-opacity="0.38" />
-          </filter>
-        </defs>
-        <g id="viewport">
-          <g id="gridLayer" class="ocean-grid"></g>
-          <g id="countryLayer"></g>
-          <g id="routeLayer"></g>
-          <g id="labelLayer"></g>
-          <g id="markerLayer"></g>
-        </g>
-      </svg>
 
       <article class="floating-card hover-card hidden" id="hoverCard" aria-live="polite"></article>
       <article class="floating-card detail-card hidden" id="detailCard" aria-live="polite"></article>
@@ -66,6 +48,8 @@
         <div class="legend-row"><span class="legend-dot ca"></span><span>Canada — <strong id="caCount">0 stadiums</strong></span></div>
       </aside>
 
+      <div class="map-credit" aria-label="Map attribution">Real map · OpenStreetMap/CARTO · MapLibre · Three.js</div>
+
       <div class="control-stack" aria-label="Map controls">
         <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
         <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
@@ -73,7 +57,7 @@
       </div>
     </section>
 
-    <aside class="panel hidden" id="filterPanel" aria-label="Filters">
+    <aside class="panel filter-panel hidden" id="filterPanel" aria-label="Filters">
       <h2 class="panel-title">Filters</h2>
       <div class="form-field">
         <label for="searchInput">Search</label>
@@ -108,10 +92,13 @@
       <button type="button" class="active" data-view="map">Map</button>
       <button type="button" data-view="matches">Matches</button>
       <button type="button" data-view="bracket">Bracket</button>
+      <button type="button" id="mobileFilterToggle">Filter</button>
     </nav>
   </div>
 
-  <script src="data.js" defer></script>
-  <script src="app.js" defer></script>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
