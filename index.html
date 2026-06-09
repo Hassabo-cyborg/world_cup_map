@@ -3,101 +3,96 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#03130f" />
+  <meta name="theme-color" content="#031812" />
   <title>World Cup 2026 Map</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Inter:wght@500;650;750;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Inter:wght@500;600;700;800;900&display=swap" rel="stylesheet">
   <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app" id="app">
-    <div class="noise" aria-hidden="true"></div>
+    <div class="grain" aria-hidden="true"></div>
 
     <header class="topbar" aria-label="Main navigation">
-      <div class="brand">
-        <span class="brand-eyebrow">FIFA 2026</span>
-        <strong class="brand-title">World Cup 2026 Map</strong>
-      </div>
+      <button class="brand" type="button" id="homeButton" aria-label="Reset map view">
+        <span>FIFA 2026</span>
+        <strong>World Cup 2026 Map</strong>
+      </button>
 
-      <nav class="nav-pill" aria-label="Views">
+      <nav class="view-tabs" aria-label="Views">
         <button type="button" class="active" data-view="map">Map</button>
         <button type="button" data-view="matches">Matches</button>
         <button type="button" data-view="bracket">Bracket</button>
       </nav>
 
-      <div class="icon-actions">
-        <button type="button" id="filterToggle" aria-label="Open filters">☰</button>
-        <button type="button" id="themeToggle" aria-label="Toggle theme">◐</button>
+      <div class="top-actions">
+        <button type="button" id="filterToggle" aria-expanded="false" aria-controls="filterPanel">Filters</button>
+        <button type="button" id="themeToggle" aria-label="Toggle light and dark mode">◐</button>
       </div>
     </header>
 
-    <section class="map-stage" id="mapStage" aria-label="Interactive real World Cup host map">
-      <div id="map" class="real-map" aria-hidden="false"></div>
-      <canvas id="three-bg" aria-hidden="true"></canvas>
-      <svg class="leader-layer" id="leaderLayer" aria-hidden="true"></svg>
+    <main class="map-stage" id="mapStage">
+      <div id="map" class="map"></div>
       <div class="map-vignette" aria-hidden="true"></div>
 
-      <article class="floating-card hover-card hidden" id="hoverCard" aria-live="polite"></article>
-      <article class="floating-card detail-card hidden" id="detailCard" aria-live="polite"></article>
+      <article class="map-card hover-card hidden" id="hoverCard" aria-live="polite"></article>
+      <article class="map-card detail-card hidden" id="detailCard" aria-live="polite"></article>
 
       <aside class="legend" aria-label="Host country legend">
-        <div class="legend-row"><span class="legend-dot us"></span><span>United States — <strong id="usCount">0 stadiums</strong></span></div>
-        <div class="legend-row"><span class="legend-dot mx"></span><span>Mexico — <strong id="mxCount">0 stadiums</strong></span></div>
-        <div class="legend-row"><span class="legend-dot ca"></span><span>Canada — <strong id="caCount">0 stadiums</strong></span></div>
+        <div><span class="dot us"></span>United States <strong id="usCount">0</strong></div>
+        <div><span class="dot mx"></span>Mexico <strong id="mxCount">0</strong></div>
+        <div><span class="dot ca"></span>Canada <strong id="caCount">0</strong></div>
       </aside>
 
-      <div class="map-credit" aria-label="Map attribution">Real map · OpenStreetMap/CARTO · MapLibre · Three.js</div>
+      <div class="map-hint" id="mapHint">Hover a stadium point</div>
 
-      <div class="control-stack" aria-label="Map controls">
+      <div class="map-controls" aria-label="Map controls">
         <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
         <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
         <button type="button" id="resetMap" aria-label="Reset map">⌂</button>
       </div>
-    </section>
+    </main>
 
-    <aside class="panel filter-panel hidden" id="filterPanel" aria-label="Filters">
-      <h2 class="panel-title">Filters</h2>
-      <div class="form-field">
-        <label for="searchInput">Search</label>
-        <input id="searchInput" type="search" placeholder="City, stadium, team..." />
+    <aside class="filter-panel hidden" id="filterPanel" aria-label="Filters">
+      <div class="panel-head">
+        <div>
+          <span class="eyebrow">Refine</span>
+          <h2>Filters</h2>
+        </div>
+        <button type="button" id="closeFilters" aria-label="Close filters">×</button>
       </div>
-      <div class="form-field">
-        <label for="countryFilter">Country</label>
+      <label>Search
+        <input id="searchInput" type="search" placeholder="City, stadium, team..." autocomplete="off" />
+      </label>
+      <label>Country
         <select id="countryFilter"><option value="all">All countries</option></select>
-      </div>
-      <div class="form-field">
-        <label for="statusFilter">Status</label>
-        <select id="statusFilter"><option value="all">All statuses</option></select>
-      </div>
-      <div class="form-field">
-        <label for="roundFilter">Round</label>
-        <select id="roundFilter"><option value="all">All rounds</option></select>
-      </div>
-      <div class="form-field">
-        <label for="teamFilter">Team</label>
+      </label>
+      <label>Stage
+        <select id="roundFilter"><option value="all">All stages</option></select>
+      </label>
+      <label>Team
         <select id="teamFilter"><option value="all">All teams</option></select>
-      </div>
-      <div class="filter-row">
-        <button type="button" class="ghost-btn" id="clearFilters">Clear</button>
-        <button type="button" class="primary-btn" id="closeFilters">Apply</button>
+      </label>
+      <div class="filter-actions">
+        <button type="button" id="clearFilters">Clear</button>
+        <button type="button" id="applyFilters">Apply</button>
       </div>
     </aside>
 
-    <section class="panel view-panel hidden" id="matchesView" aria-label="Matches list"></section>
-    <section class="panel view-panel hidden" id="bracketView" aria-label="Tournament bracket"></section>
+    <section class="view-panel hidden" id="matchesView" aria-label="Matches"></section>
+    <section class="view-panel hidden" id="bracketView" aria-label="Bracket"></section>
 
-    <nav class="mobile-tabs" aria-label="Mobile views">
+    <nav class="mobile-tabs" aria-label="Mobile navigation">
       <button type="button" class="active" data-view="map">Map</button>
       <button type="button" data-view="matches">Matches</button>
       <button type="button" data-view="bracket">Bracket</button>
-      <button type="button" id="mobileFilterToggle">Filter</button>
+      <button type="button" id="mobileFilterToggle">Filters</button>
     </nav>
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
   <script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
   <script src="data.js"></script>
   <script src="app.js"></script>
