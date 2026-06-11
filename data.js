@@ -3,7 +3,7 @@ window.WC_DATA = {
   "meta": {
     "title": "World Cup 2026 Map",
     "defaultTheme": "dark",
-    "version": "realmap-v9-live-ready",
+    "version": "realmap-v10-1-responsive-polish",
     "source": "Uploaded World Cup 2026 CSV dataset with optional API-Football live overlay",
     "liveRefreshMs": 1200000
   },

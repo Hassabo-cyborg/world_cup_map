@@ -109,6 +109,11 @@
     document.getElementById("zoomOut")?.addEventListener("click", () => state.map?.zoomOut({ duration: 450 }));
     document.getElementById("resetMap")?.addEventListener("click", () => fitHostBounds(true));
 
+    isolateOverlayScroll(els.detailCard);
+    isolateOverlayScroll(els.filterPanel);
+    isolateOverlayScroll(els.matchesView);
+    isolateOverlayScroll(els.bracketView);
+
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         closeAllCards();
@@ -131,9 +136,9 @@
     state.map = new maplibregl.Map({
       container: "map",
       style: makeMapStyle(els.html.dataset.theme),
-      center: [-99.2, 39.3],
+      center: [-98.5, 39.2],
       zoom: initialZoom(),
-      minZoom: 2.1,
+      minZoom: 1.35,
       maxZoom: 8,
       pitch: 0,
       bearing: 0,
@@ -383,6 +388,9 @@
     const stadiumMatches = getStadiumMatches(stadium.id);
     els.detailCard.innerHTML = cardHTML(stadium, next, true, stadiumMatches);
     els.detailCard.classList.remove("hidden");
+    els.detailCard.scrollTop = 0;
+    const detailScroll = els.detailCard.querySelector(".detail-scroll");
+    if (detailScroll) detailScroll.scrollTop = 0;
     els.detailCard.querySelector(".card-close")?.addEventListener("click", closeAllCards);
     positionCard(els.detailCard, x + 18, y + 18);
     els.mapHint.textContent = `${stadium.city} selected`;
@@ -423,7 +431,7 @@
       <div class="card-body">
         <div class="card-topline">
           <div>
-            <span class="eyebrow">${escapeHTML(stadium.countryFlag)} ${escapeHTML(stadium.country)}</span>
+            <span class="eyebrow country-eyebrow">${flagMarkup(stadium.countryFlag, stadium.country)} ${escapeHTML(stadium.country)}</span>
             <h2 class="card-title">${escapeHTML(stadium.venue)}</h2>
             <p class="card-sub">${escapeHTML(stadium.city)} · ${escapeHTML(stadium.region)} region</p>
           </div>
@@ -465,7 +473,8 @@
   }
 
   function teamHTML(team) {
-    return `<span class="team-chip"><span class="flag">${escapeHTML(team.flag || "🏳️")}</span>${escapeHTML(team.name || team.code || "Team TBC")}</span>`;
+    const name = team?.name || team?.code || "Team TBC";
+    return `<span class="team-chip">${flagMarkup(team?.flag || "🏳️", name)}<span>${escapeHTML(name)}</span></span>`;
   }
 
   function placeholderHTML(token) {
@@ -759,26 +768,54 @@
   }
 
   function formatLiveUpdated(value) {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "not yet";
-    return new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(date);
+    const date = parseMatchDate(value);
+    if (!date) return "not yet";
+    return new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZoneName: "short"
+    }).format(date);
+  }
+
+  function matchComputedStatus(match) {
+    const apiStatus = match?.status || "upcoming";
+    if (["live", "halftime", "finished", "postponed"].includes(apiStatus)) return apiStatus;
+
+    const kickoff = parseMatchDate(match?.kickoff);
+    if (!kickoff) return apiStatus;
+
+    const now = Date.now();
+    const start = kickoff.getTime();
+    const liveWindowMs = 2.75 * 60 * 60 * 1000; // safety window for normal time + stoppage/ET delays
+
+    if (now < start) return "upcoming";
+    if (now <= start + liveWindowMs) return "live";
+    return "finished";
+  }
+
+  function computedStatusLabel(match) {
+    const status = matchComputedStatus(match);
+    if (["live", "halftime"].includes(status)) {
+      if (match?.elapsed) return `${status === "halftime" ? "HT" : "LIVE"} ${match.elapsed}'`;
+      return status === "halftime" ? "HT" : "LIVE";
+    }
+    if (status === "finished") return "FT";
+    if (status === "postponed") return match?.statusLabel || "Postponed";
+    return match?.statusLabel || "Scheduled";
   }
 
   function isLive(match) {
-    return ["live", "halftime"].includes(match?.status);
+    return ["live", "halftime"].includes(matchComputedStatus(match));
   }
 
   function isFinished(match) {
-    return match?.status === "finished";
+    return matchComputedStatus(match) === "finished";
   }
 
   function matchStatusHTML(match) {
-    const status = match?.status || "upcoming";
-    const label = isLive(match)
-      ? `${match.status === "halftime" ? "HT" : "LIVE"}${match.elapsed ? ` ${match.elapsed}'` : ""}`
-      : isFinished(match)
-        ? "FT"
-        : match?.statusLabel || status;
+    const status = matchComputedStatus(match);
+    const label = computedStatusLabel(match);
     return `<span class="status-pill ${escapeHTML(status)}">${escapeHTML(label)}</span>`;
   }
 
@@ -820,6 +857,30 @@
 
   function flagForTeamName(name) {
     return findTeamByName(name)?.flag || "🏳️";
+  }
+
+  function flagMarkup(flag, label = "flag") {
+    const safeFlag = String(flag || "🏳️");
+    const url = twemojiFlagUrl(safeFlag);
+    const img = url ? `<img src="${url}" alt="${escapeHTML(label)} flag" loading="lazy" decoding="async">` : "";
+    return `<span class="flag flag-render" title="${escapeHTML(label)}"><span class="flag-fallback">${escapeHTML(safeFlag)}</span>${img}</span>`;
+  }
+
+  function twemojiFlagUrl(flag) {
+    const chars = Array.from(String(flag || "")).filter((char) => char.trim() !== "");
+    if (chars.length < 2) return null;
+    const codes = chars.map((char) => char.codePointAt(0));
+    const regionalIndicators = codes.every((code) => code >= 0x1F1E6 && code <= 0x1F1FF);
+    if (!regionalIndicators) return null;
+    const file = codes.map((code) => code.toString(16)).join("-");
+    return `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/${file}.svg`;
+  }
+
+  function isolateOverlayScroll(element) {
+    if (!element) return;
+    ["wheel", "touchstart", "touchmove"].forEach((eventName) => {
+      element.addEventListener(eventName, (event) => event.stopPropagation(), { passive: true });
+    });
   }
 
   function numberOrNull(value) {
@@ -1020,22 +1081,21 @@
   }
 
   function matchTimeMs(match) {
-    const date = new Date(normalizeDateInput(match?.kickoff));
-    return Number.isNaN(date.getTime()) ? Number.MAX_SAFE_INTEGER : date.getTime();
+    const date = parseMatchDate(match?.kickoff);
+    return date ? date.getTime() : Number.MAX_SAFE_INTEGER;
   }
 
   function initialZoom() {
-    return window.innerWidth < 760 ? 2.35 : 2.82;
+    return window.innerWidth < 760 ? 1.75 : 2.22;
   }
 
   function fitHostBounds(animate) {
-    if (!state.map || !stadiums.length) return;
-    const bounds = new maplibregl.LngLatBounds();
-    stadiums.forEach((s) => bounds.extend([s.lng, s.lat]));
+    if (!state.map) return;
+    const bounds = new maplibregl.LngLatBounds([-132, 13], [-52, 60]);
     state.map.fitBounds(bounds, {
-      padding: window.innerWidth < 760 ? { top: 110, right: 28, bottom: 110, left: 28 } : { top: 120, right: 110, bottom: 95, left: 110 },
+      padding: window.innerWidth < 760 ? { top: 92, right: 18, bottom: 96, left: 18 } : { top: 112, right: 58, bottom: 82, left: 58 },
       duration: animate && state.motionOk ? 900 : 0,
-      maxZoom: window.innerWidth < 760 ? 3.25 : 3.85
+      maxZoom: window.innerWidth < 760 ? 2.08 : 2.46
     });
   }
 
@@ -1061,76 +1121,87 @@
 
   function normalizeDateInput(value) {
     if (!value) return "";
-    return String(value).replace(/([+-]\d{2})$/, "$1:00");
+    return String(value)
+      .trim()
+      .replace(" ", "T")
+      .replace(/([+-]\d{2})$/, "$1:00");
   }
 
-  function parseLocalParts(value) {
-    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
-    if (!match) return null;
-    return {
-      year: Number(match[1]),
-      month: Number(match[2]),
-      day: Number(match[3]),
-      hour: Number(match[4]),
-      minute: Number(match[5])
-    };
+  function parseMatchDate(value) {
+    if (!value) return null;
+    const normalized = normalizeDateInput(value);
+    const date = new Date(normalized);
+    if (!Number.isNaN(date.getTime())) return date;
+    return null;
   }
 
-  function monthName(monthNumber, long = false) {
-    const date = new Date(Date.UTC(2026, monthNumber - 1, 1));
-    return new Intl.DateTimeFormat("en", { month: long ? "long" : "short", timeZone: "UTC" }).format(date);
-  }
-
-  function localClock(parts) {
-    const h = parts.hour % 12 || 12;
-    const m = String(parts.minute).padStart(2, "0");
-    return `${h}:${m} ${parts.hour >= 12 ? "PM" : "AM"}`;
+  function getViewerTimeZone() {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "local time";
   }
 
   function formatDate(value) {
-    if (!value) return "Date TBC";
-    const parts = parseLocalParts(value);
-    if (parts) return `${monthName(parts.month)} ${parts.day}, ${parts.year} · ${localClock(parts)} local`;
-    const date = new Date(normalizeDateInput(value));
-    if (Number.isNaN(date.getTime())) return escapeHTML(String(value));
-    return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+    const date = parseMatchDate(value);
+    if (!date) return value ? escapeHTML(String(value)) : "Date TBC";
+    return new Intl.DateTimeFormat(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short"
+    }).format(date);
   }
 
   function formatTime(value) {
-    if (!value) return "Time TBC";
-    const parts = parseLocalParts(value);
-    if (parts) return `${localClock(parts)} local`;
-    const date = new Date(normalizeDateInput(value));
-    if (Number.isNaN(date.getTime())) return escapeHTML(String(value));
-    return new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(date);
+    const date = parseMatchDate(value);
+    if (!date) return value ? escapeHTML(String(value)) : "Time TBC";
+    return new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short"
+    }).format(date);
   }
 
   function formatShortDate(value) {
-    if (!value) return "TBC";
-    const parts = parseLocalParts(value);
-    if (parts) return `${monthName(parts.month)} ${parts.day}`;
-    const date = new Date(normalizeDateInput(value));
-    if (Number.isNaN(date.getTime())) return escapeHTML(String(value));
-    return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(date);
+    const date = parseMatchDate(value);
+    if (!date) return value ? escapeHTML(String(value)) : "TBC";
+    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+  }
+
+  function localDateKeyFromDate(date) {
+    const parts = new Intl.DateTimeFormat("en", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date).reduce((acc, part) => {
+      acc[part.type] = part.value;
+      return acc;
+    }, {});
+    return `${parts.year}-${parts.month}-${parts.day}`;
   }
 
   function dayKey(value) {
-    const match = String(value || "").match(/^(\d{4}-\d{2}-\d{2})/);
-    if (match) return match[1];
-    const date = new Date(normalizeDateInput(value));
-    if (Number.isNaN(date.getTime())) return "TBC";
-    return date.toISOString().slice(0, 10);
+    const date = parseMatchDate(value);
+    if (!date) return "TBC";
+    return localDateKeyFromDate(date);
   }
 
   function dayTime(day) {
-    const date = new Date(`${day}T00:00:00Z`);
+    const date = new Date(`${day}T00:00:00`);
     return Number.isNaN(date.getTime()) ? Number.MAX_SAFE_INTEGER : date.getTime();
   }
 
   function formatDayTitle(day) {
     if (day === "TBC") return "Date TBC";
-    const date = new Date(`${day}T00:00:00Z`);
-    return new Intl.DateTimeFormat("en", { weekday: "short", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }).format(date);
+    const date = new Date(`${day}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return day;
+    return new Intl.DateTimeFormat(undefined, {
+      weekday: "short",
+      month: "long",
+      day: "numeric",
+      year: "numeric"
+    }).format(date);
   }
 
   function cssEscape(value) {
