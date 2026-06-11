@@ -17,7 +17,8 @@ const RESOURCE_CONFIG = {
     path: "/fixtures",
     params: { league: LEAGUE, season: SEASON },
     cdnSeconds: 20 * 60,
-    staleSeconds: 10 * 60
+    staleSeconds: 5 * 60,
+    dynamicCache: true
   },
   standings: {
     path: "/standings",
@@ -67,10 +68,10 @@ module.exports = async function handler(req, res) {
   const cacheKey = makeCacheKey(resource, query);
   const cached = memoryCache.get(cacheKey);
   const now = Date.now();
-  const maxAgeMs = config.cdnSeconds * 1000;
+  const forceFresh = query.fresh === "1" || query.force === "1";
 
-  if (cached && now - cached.time < maxAgeMs) {
-    setCacheHeaders(res, config);
+  if (!forceFresh && cached && now - cached.time < cached.ttlMs) {
+    setCacheHeaders(res, cached.cacheConfig || config);
     return res.status(200).json({ ...cached.body, cache: "memory-hit" });
   }
 
@@ -100,9 +101,10 @@ module.exports = async function handler(req, res) {
       return res.status(response.status).json({ ...body, message: "API-Football request failed." });
     }
 
-    memoryCache.set(cacheKey, { time: now, body });
-    setCacheHeaders(res, config);
-    return res.status(200).json({ ...body, cache: "fresh" });
+    const cacheConfig = config.dynamicCache ? dynamicFixtureCacheConfig(payload) : config;
+    memoryCache.set(cacheKey, { time: now, ttlMs: cacheConfig.cdnSeconds * 1000, cacheConfig, body });
+    setCacheHeaders(res, cacheConfig);
+    return res.status(200).json({ ...body, cache: "fresh", cacheTtlSeconds: cacheConfig.cdnSeconds });
   } catch (error) {
     setNoStore(res);
     return res.status(500).json({
@@ -161,4 +163,30 @@ function readQuotaHeaders(headers) {
 
 function toCamel(value) {
   return value.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+}
+
+
+function dynamicFixtureCacheConfig(payload) {
+  const base = RESOURCE_CONFIG.fixtures;
+  const fixtures = Array.isArray(payload?.response) ? payload.response : [];
+  const now = Date.now();
+  const activeWindow = fixtures.some((item) => {
+    const date = parseDateMs(item?.fixture?.date);
+    if (!date) return false;
+    const short = String(item?.fixture?.status?.short || "").toUpperCase();
+    const explicitlyLive = ["1H", "2H", "HT", "ET", "BT", "P", "LIVE", "INT"].includes(short);
+    // Treat a fixture as active from 30 minutes before kickoff until 3 hours after.
+    return explicitlyLive || (now >= date - 30 * 60 * 1000 && now <= date + 3 * 60 * 60 * 1000);
+  });
+  if (activeWindow) {
+    return { ...base, cdnSeconds: 8 * 60, staleSeconds: 60 };
+  }
+  return { ...base, cdnSeconds: 20 * 60, staleSeconds: 5 * 60 };
+}
+
+function parseDateMs(value) {
+  if (!value) return null;
+  const normalized = String(value).trim().replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00");
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date.getTime();
 }
