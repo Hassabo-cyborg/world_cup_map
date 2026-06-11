@@ -166,11 +166,9 @@ html[data-theme="light"] .map-vignette { background: radial-gradient(circle at c
   .map-controls { right: 14px; bottom: 82px; }
   .map-card { width: calc(100vw - 24px); }
   .hover-card { display: none !important; }
-  .detail-card { left: 12px !important; right: 12px !important; top: clamp(86px, 13svh, 124px) !important; bottom: calc(76px + env(safe-area-inset-bottom)) !important; width: auto; height: auto; max-height: none; transform-origin: bottom center; border-radius: 26px; }
+  /* detail-card layout handled by MQ7 below */
   .detail-card .venue-strip { height: 70px; border-radius: 18px; }
   .detail-card .venue-strip::after { font-size: 38px; }
-  .detail-card .card-body { flex: 0 0 auto; padding-bottom: 10px; }
-  .detail-card .detail-scroll { flex: 1 1 auto; min-height: 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
   .filter-panel { top: auto; right: 12px; left: 12px; bottom: 76px; width: auto; max-height: 72svh; overflow: auto; }
   .view-panel { top: 78px; left: 12px; right: 12px; bottom: 76px; padding: 16px; border-radius: 24px; }
   .matches-grid { grid-template-columns: 1fr; }
@@ -255,10 +253,10 @@ html[data-theme="light"] .map-vignette { background: radial-gradient(circle at c
 }
 
 /* V9 live-data layer */
-.live-status { min-width: 112px; }
-.live-status[data-state="live"] { color: var(--blue); border-color: rgba(45,226,255,.38); box-shadow: 0 0 28px rgba(45,226,255,.12), var(--shadow); }
-.live-status[data-state="loading"] { color: var(--gold); border-color: rgba(216,179,95,.38); }
-.live-status[data-state="static"] { color: var(--muted); }
+.live-badge { min-width: 112px; }
+.live-badge[data-state="live"] { color: var(--blue); border-color: rgba(45,226,255,.38); box-shadow: 0 0 28px rgba(45,226,255,.12), var(--shadow); }
+.live-badge[data-state="loading"] { color: var(--gold); border-color: rgba(216,179,95,.38); }
+.live-badge[data-state="static"] { color: var(--muted); }
 .status-pill, .score-pill {
   display: inline-flex;
   align-items: center;
@@ -299,32 +297,11 @@ html[data-theme="light"] .map-vignette { background: radial-gradient(circle at c
 @media (max-width: 760px) {
   .top-actions { gap: 5px; }
   .top-actions #refreshLive { display: none; }
-  .live-status { min-width: 92px; padding-inline: 10px; }
+  .live-badge { min-width: 92px; padding-inline: 10px; }
 }
 
 /* V10.2 production fixes: wider North America map view + safer mobile card scrolling */
-@media (max-width: 760px) {
-  .detail-card {
-    display: flex !important;
-    flex-direction: column !important;
-    height: auto !important;
-    max-height: calc(100svh - 160px) !important;
-    overflow: hidden !important;
-    touch-action: pan-y !important;
-  }
-  .detail-card .detail-scroll {
-    flex: 1 1 auto !important;
-    min-height: 120px !important;
-    max-height: calc(100svh - 390px) !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    overscroll-behavior: contain !important;
-    touch-action: pan-y !important;
-  }
-  .detail-card .match-list {
-    padding-bottom: 32px;
-  }
-}
+/* MQ6 removed: consolidated into MQ7 below */
 
 .flag-render img {
   background: rgba(255,255,255,.08);
@@ -364,36 +341,7 @@ html[data-theme="light"] .map-vignette { background: radial-gradient(circle at c
 .flag-render img { z-index: 2; }
 .flag-fallback { z-index: 1; }
 
-/* Live status badge */
-.live-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 9px;
-  border-radius: 99px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  border: 1px solid transparent;
-  transition: background 0.3s, color 0.3s;
-  cursor: default;
-  white-space: nowrap;
-}
-.live-badge[data-state="live"] {
-  background: rgba(45, 226, 255, 0.15);
-  color: #2de2ff;
-  border-color: rgba(45, 226, 255, 0.35);
-}
-.live-badge[data-state="static"] {
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--text-muted, #9b9a94);
-  border-color: rgba(255, 255, 255, 0.10);
-}
-.live-badge[data-state="loading"] {
-  background: rgba(216, 178, 54, 0.12);
-  color: #d8b236;
-  border-color: rgba(216, 178, 54, 0.25);
-}
+/* Light theme override for live badge */
 [data-theme="light"] .live-badge[data-state="static"] {
   background: rgba(0,0,0,0.05);
   color: #666;
