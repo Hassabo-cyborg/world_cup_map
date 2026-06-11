@@ -1,49 +1,49 @@
 id,team_name,fifa_code,group_letter,is_placeholder
-1,Mexico,MEX,A,False
-2,South Africa,RSA,A,False
-3,South Korea,KOR,A,False
-4,Czechia,CZE,A,False
-5,Canada,CAN,B,False
-6,Bosnia and Herzegovina,BIH,B,False
-7,Qatar,QAT,B,False
-8,Switzerland,SUI,B,False
-9,Brazil,BRA,C,False
-10,Morocco,MAR,C,False
-11,Haiti,HAI,C,False
-12,Scotland,SCO,C,False
-13,USA,USA,D,False
-14,Paraguay,PAR,D,False
-15,Australia,AUS,D,False
-16,Türkiye,TUR,D,False
-17,Germany,GER,E,False
-18,Curaçao,CUR,E,False
-19,Côte d'Ivoire,CIV,E,False
-20,Ecuador,ECU,E,False
-21,Netherlands,NED,F,False
-22,Japan,JPN,F,False
-23,Sweden,SWE,F,False
-24,Tunisia,TUN,F,False
-25,Belgium,BEL,G,False
-26,Egypt,EGY,G,False
-27,IR Iran,IRN,G,False
-28,New Zealand,NZL,G,False
-29,Spain,ESP,H,False
-30,Cabo Verde,CPV,H,False
-31,Saudi Arabia,KSA,H,False
-32,Uruguay,URU,H,False
-33,France,FRA,I,False
-34,Senegal,SEN,I,False
-35,DR Congo,COD,I,False
-36,Norway,NOR,I,False
-37,Argentina,ARG,J,False
-38,Algeria,ALG,J,False
-39,Austria,AUT,J,False
-40,Jordan,JOR,J,False
-41,Portugal,POR,K,False
-42,Iraq,IRQ,K,False
-43,Uzbekistan,UZB,K,False
-44,Colombia,COL,K,False
-45,England,ENG,L,False
-46,Croatia,CRO,L,False
-47,Ghana,GHA,L,False
-48,Panama,PAN,L,False
+1,Mexico,MEX,A,0
+2,South Africa,RSA,A,0
+3,South Korea,KOR,A,0
+4,Czechia,CZE,A,0
+5,Canada,CAN,B,0
+6,Bosnia and Herzegovina,BIH,B,0
+7,Qatar,QAT,B,0
+8,Switzerland,SUI,B,0
+9,Brazil,BRA,C,0
+10,Morocco,MAR,C,0
+11,Haiti,HAI,C,0
+12,Scotland,SCO,C,0
+13,USA,USA,D,0
+14,Paraguay,PAR,D,0
+15,Australia,AUS,D,0
+16,Türkiye,TUR,D,0
+17,Germany,GER,E,0
+18,Curaçao,CUR,E,0
+19,Côte d'Ivoire,CIV,E,0
+20,Ecuador,ECU,E,0
+21,Netherlands,NED,F,0
+22,Japan,JPN,F,0
+23,Sweden,SWE,F,0
+24,Tunisia,TUN,F,0
+25,Belgium,BEL,G,0
+26,Egypt,EGY,G,0
+27,IR Iran,IRN,G,0
+28,New Zealand,NZL,G,0
+29,Spain,ESP,H,0
+30,Cabo Verde,CPV,H,0
+31,Saudi Arabia,KSA,H,0
+32,Uruguay,URU,H,0
+33,France,FRA,I,0
+34,Senegal,SEN,I,0
+35,DR Congo,COD,I,0
+36,Norway,NOR,I,0
+37,Argentina,ARG,J,0
+38,Algeria,ALG,J,0
+39,Austria,AUT,J,0
+40,Jordan,JOR,J,0
+41,Portugal,POR,K,0
+42,Iraq,IRQ,K,0
+43,Uzbekistan,UZB,K,0
+44,Colombia,COL,K,0
+45,England,ENG,L,0
+46,Croatia,CRO,L,0
+47,Ghana,GHA,L,0
+48,Panama,PAN,L,0
