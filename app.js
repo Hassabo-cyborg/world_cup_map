@@ -133,7 +133,6 @@
     isolateOverlayScroll(els.filterPanel);
     isolateOverlayScroll(els.matchesView);
     isolateOverlayScroll(els.bracketView);
-    els.bracketView?.addEventListener("click", onBracketClick);
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
@@ -381,7 +380,8 @@
     const currentZoom = state.map.getZoom();
     state.map.flyTo({
       center: [stadium.lng, stadium.lat],
-      zoom: Math.max(currentZoom, window.innerWidth < 760 ? 1.85 : 2.15),
+      // Mild focus only. Keep North America context instead of drilling into a city.
+      zoom: Math.min(Math.max(currentZoom, window.innerWidth < 760 ? 0.82 : 1.05), window.innerWidth < 760 ? 1.05 : 1.25),
       duration: state.motionOk ? 850 : 0,
       essential: true
     });
@@ -627,7 +627,7 @@
     state.live.loading = true;
     updateLiveStatusBadge(force ? "Refreshing…" : undefined);
     try {
-      const url = `/api/worldcup?resource=fixtures`;
+      const url = `/api/worldcup?resource=fixtures${force ? "&fresh=1" : ""}`;
       const response = await fetch(url, { headers: { "Accept": "application/json" } });
       const json = await response.json().catch(() => ({}));
       if (!response.ok || json.ok === false) {
@@ -808,37 +808,45 @@
     const start = kickoff ? kickoff.getTime() : null;
     const stage = String(match?.stage || "").toLowerCase();
     const isKnockout = /(round of|quarter|semi|third|final)/.test(stage);
-    const preLiveGraceMs = 5 * 60 * 1000;
-    const normalMatchEndMs = 2 * 60 * 60 * 1000 + 5 * 60 * 1000; // group-stage safety: 2h 05m
-    const knockoutEndMs = 3 * 60 * 60 * 1000 + 15 * 60 * 1000; // ET + penalties safety
-    const endWindowMs = isKnockout ? knockoutEndMs : normalMatchEndMs;
-    const pastExpectedEnd = start !== null && now > start + endWindowMs;
-    const definitelyBeforeKickoff = start !== null && now < start - preLiveGraceMs;
 
-    // Local absolute time wins over stale live labels from cached/free API responses.
-    if (definitelyBeforeKickoff && ["1H", "2H", "ET", "BT", "P", "LIVE", "INT"].includes(short)) return "upcoming";
+    const explicitLive = ["1H", "2H", "ET", "BT", "P", "LIVE", "INT"].includes(short) || apiStatus === "live";
+    const explicitHalf = short === "HT" || apiStatus === "halftime";
+    const explicitFinished = ["FT", "AET", "PEN"].includes(short) || /finished|after extra time|penalties/.test(label) || apiStatus === "finished";
+    const explicitPostponed = ["PST", "CANC", "ABD", "SUSP"].includes(short) || ["postponed", "cancelled", "abandoned", "suspended"].some((word) => label.includes(word)) || apiStatus === "postponed";
 
-    // Trust explicit API terminal states first.
-    if (["FT", "AET", "PEN"].includes(short) || /finished|after extra time|penalties/.test(label)) return "finished";
-    if (["PST", "CANC", "ABD", "SUSP"].includes(short) || ["postponed", "cancelled", "abandoned", "suspended"].some((word) => label.includes(word))) return "postponed";
+    // Hard safety windows. These prevent a stale API/cache response from showing LIVE
+    // long after the match should already have ended. Time is absolute, so this behaves
+    // the same in KSA, USA, Mexico, Canada, or anywhere else.
+    const normalHardEndMs = 2 * 60 * 60 * 1000 + 45 * 60 * 1000; // 2h 45m
+    const knockoutHardEndMs = 4 * 60 * 60 * 1000; // ET + penalties + delay buffer
+    const hardEndMs = isKnockout ? knockoutHardEndMs : normalHardEndMs;
+    const hardPastEnd = start !== null && now > start + hardEndMs;
+    const beforeKickoff = start !== null && now < start;
 
-    // If the provider/cache is stale and still says live after the realistic end window,
-    // the UI must not keep a finished game glowing forever. The next refresh will still
-    // accept FT/AET/PEN from the API when it arrives.
-    if (pastExpectedEnd && !["ET", "BT", "P"].includes(short)) return "finished";
+    if (explicitPostponed) return "postponed";
+    if (explicitFinished) return "finished";
 
-    if (short === "HT") return "halftime";
-    if (["1H", "2H", "ET", "BT", "P", "LIVE", "INT"].includes(short) || apiStatus === "live") return "live";
-    if (apiStatus === "halftime" || apiStatus === "finished" || apiStatus === "postponed") return apiStatus;
+    // If an API response says LIVE but the absolute match window has clearly passed,
+    // do not keep the UI glowing live. Mark it finished if we have a score/winner;
+    // otherwise mark it pending so the user knows we are waiting for API confirmation.
+    if (hardPastEnd && (explicitLive || explicitHalf)) {
+      return hasScoreOrWinner(match) ? "finished" : "awaiting";
+    }
 
-    if (!kickoff) return apiStatus;
+    if (explicitHalf) return hardPastEnd ? (hasScoreOrWinner(match) ? "finished" : "awaiting") : "halftime";
+    if (explicitLive) return beforeKickoff ? "upcoming" : "live";
 
-    // Timezone-safe fallback. Date objects represent one absolute moment,
-    // so this works the same in KSA, USA, Mexico, Canada, or anywhere else.
-    if (now < start - preLiveGraceMs) return "upcoming";
-    if (now < start) return "upcoming";
-    if (now <= start + endWindowMs) return "live";
-    return "finished";
+    if (!kickoff) return apiStatus || "upcoming";
+    if (beforeKickoff) return "upcoming";
+
+    // No explicit live API status: do NOT invent LIVE from the clock.
+    // This avoids wrong states when the free API/cache is delayed.
+    if (hardPastEnd) return hasScoreOrWinner(match) ? "finished" : "awaiting";
+    return "awaiting";
+  }
+
+  function hasScoreOrWinner(match) {
+    return match?.winner || (match?.goalsHome !== null && match?.goalsHome !== undefined && match?.goalsAway !== null && match?.goalsAway !== undefined);
   }
 
   function computedStatusLabel(match) {
@@ -848,6 +856,7 @@
       return status === "halftime" ? "HT" : "LIVE";
     }
     if (status === "finished") return "FT";
+    if (status === "awaiting") return "Result pending";
     if (status === "postponed") return match?.statusLabel || "Postponed";
     return match?.statusLabel || "Scheduled";
   }
@@ -1145,20 +1154,22 @@
   }
 
   function initialZoom() {
-    // Wide default view: the whole host region is visible before interaction.
-    return window.innerWidth < 760 ? 0.38 : 0.72;
+    // Very wide default: all host countries remain visible immediately.
+    return window.innerWidth < 760 ? 0.2 : 0.75;
   }
 
   function fitHostBounds(animate) {
     if (!state.map) return;
-    // Wide North America view: Canada, USA, Mexico, and the surrounding context.
-    const bounds = new maplibregl.LngLatBounds([-176, 2], [-36, 78]);
-    state.map.fitBounds(bounds, {
-      padding: window.innerWidth < 760
-        ? { top: 84, right: 8, bottom: 92, left: 8 }
-        : { top: 96, right: 24, bottom: 66, left: 24 },
+    const mobile = window.innerWidth < 760;
+    // Explicit camera is more reliable than fitBounds at very low zoom levels
+    // across different phone/desktop aspect ratios.
+    state.map.easeTo({
+      center: mobile ? [-102, 46] : [-104, 48],
+      zoom: mobile ? 0.35 : 0.82,
+      bearing: 0,
+      pitch: 0,
       duration: animate && state.motionOk ? 900 : 0,
-      maxZoom: window.innerWidth < 760 ? 0.62 : 0.88
+      essential: true
     });
   }
 

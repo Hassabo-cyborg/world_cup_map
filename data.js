@@ -543,7 +543,7 @@ window.WC_DATA = {
       "name": "Scotland",
       "code": "SCO",
       "group": "C",
-      "flag": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+      "flag": "🏴",
       "isPlaceholder": false
     },
     "13": {
@@ -807,7 +807,7 @@ window.WC_DATA = {
       "name": "England",
       "code": "ENG",
       "group": "L",
-      "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+      "flag": "🏴",
       "isPlaceholder": false
     },
     "46": {
@@ -1107,7 +1107,7 @@ window.WC_DATA = {
         "name": "Scotland",
         "code": "SCO",
         "group": "C",
-        "flag": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+        "flag": "🏴",
         "isPlaceholder": false
       },
       "stadiumId": "boston",
@@ -1639,7 +1639,7 @@ window.WC_DATA = {
         "name": "England",
         "code": "ENG",
         "group": "L",
-        "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+        "flag": "🏴",
         "isPlaceholder": false
       },
       "awayTeam": {
@@ -1927,7 +1927,7 @@ window.WC_DATA = {
         "name": "Scotland",
         "code": "SCO",
         "group": "C",
-        "flag": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+        "flag": "🏴",
         "isPlaceholder": false
       },
       "awayTeam": {
@@ -2503,7 +2503,7 @@ window.WC_DATA = {
         "name": "England",
         "code": "ENG",
         "group": "L",
-        "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+        "flag": "🏴",
         "isPlaceholder": false
       },
       "awayTeam": {
@@ -2683,7 +2683,7 @@ window.WC_DATA = {
         "name": "Scotland",
         "code": "SCO",
         "group": "C",
-        "flag": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+        "flag": "🏴",
         "isPlaceholder": false
       },
       "awayTeam": {
@@ -3267,7 +3267,7 @@ window.WC_DATA = {
         "name": "England",
         "code": "ENG",
         "group": "L",
-        "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+        "flag": "🏴",
         "isPlaceholder": false
       },
       "stadiumId": "new-york-new-jersey",
