@@ -301,3 +301,120 @@ html[data-theme="light"] .map-vignette { background: radial-gradient(circle at c
   .top-actions #refreshLive { display: none; }
   .live-status { min-width: 92px; padding-inline: 10px; }
 }
+
+/* V10.2 production fixes: wider North America map view + safer mobile card scrolling */
+@media (max-width: 760px) {
+  .detail-card {
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    max-height: calc(100svh - 160px) !important;
+    overflow: hidden !important;
+    touch-action: pan-y !important;
+  }
+  .detail-card .detail-scroll {
+    flex: 1 1 auto !important;
+    min-height: 120px !important;
+    max-height: calc(100svh - 390px) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior: contain !important;
+    touch-action: pan-y !important;
+  }
+  .detail-card .match-list {
+    padding-bottom: 32px;
+  }
+}
+
+.flag-render img {
+  background: rgba(255,255,255,.08);
+}
+
+
+/* V10.3 deployment polish: true bottom sheet card and reliable scroll */
+@media (max-width: 760px) {
+  .detail-card {
+    position: absolute !important;
+    left: 10px !important;
+    right: 10px !important;
+    top: auto !important;
+    bottom: calc(76px + env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    height: min(76svh, 680px) !important;
+    max-height: min(76svh, 680px) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    border-radius: 26px !important;
+  }
+  .detail-card .card-body { flex: 0 0 auto !important; }
+  .detail-card .detail-scroll {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior: contain !important;
+    touch-action: pan-y !important;
+    padding-bottom: calc(28px + env(safe-area-inset-bottom)) !important;
+  }
+  .detail-card .match-list { padding-bottom: 44px !important; }
+}
+
+.flag-render img { z-index: 2; }
+.flag-fallback { z-index: 1; }
+
+/* Live status badge */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 99px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  transition: background 0.3s, color 0.3s;
+  cursor: default;
+  white-space: nowrap;
+}
+.live-badge[data-state="live"] {
+  background: rgba(45, 226, 255, 0.15);
+  color: #2de2ff;
+  border-color: rgba(45, 226, 255, 0.35);
+}
+.live-badge[data-state="static"] {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-muted, #9b9a94);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+.live-badge[data-state="loading"] {
+  background: rgba(216, 178, 54, 0.12);
+  color: #d8b236;
+  border-color: rgba(216, 178, 54, 0.25);
+}
+[data-theme="light"] .live-badge[data-state="static"] {
+  background: rgba(0,0,0,0.05);
+  color: #666;
+  border-color: rgba(0,0,0,0.12);
+}
+.refresh-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 2px 6px;
+  color: var(--text-muted, #9b9a94);
+  transition: color 0.2s, border-color 0.2s;
+  line-height: 1;
+}
+.refresh-btn:hover {
+  color: var(--text, #f4efe2);
+  border-color: rgba(255,255,255,0.18);
+}
+[data-theme="light"] .refresh-btn:hover {
+  color: #111;
+  border-color: rgba(0,0,0,0.2);
+}

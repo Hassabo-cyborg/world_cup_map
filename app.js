@@ -8,6 +8,26 @@
   const teams = DATA.teams || {};
   const stages = DATA.stages || [];
 
+  const FIFA_TO_ISO2 = {
+    MEX: "mx", RSA: "za", KOR: "kr", CZE: "cz", CAN: "ca", BIH: "ba", QAT: "qa", SUI: "ch", BRA: "br", MAR: "ma",
+    HAI: "ht", SCO: "gb-sct", USA: "us", PAR: "py", AUS: "au", TUR: "tr", GER: "de", CUR: "cw", CIV: "ci", ECU: "ec",
+    NED: "nl", JPN: "jp", SWE: "se", TUN: "tn", BEL: "be", EGY: "eg", IRN: "ir", NZL: "nz", ESP: "es",
+    CPV: "cv", KSA: "sa", URU: "uy", FRA: "fr", SEN: "sn", NOR: "no", ARG: "ar", ALG: "dz",
+    AUT: "at", JOR: "jo", POR: "pt", UZB: "uz", COL: "co", ENG: "gb-eng", CRO: "hr", GHA: "gh",
+    PAN: "pa", UAE: "ae", BOL: "bo", COD: "cd", IRQ: "iq", JAM: "jm", SUR: "sr", NCL: "nc"
+  };
+
+  const COUNTRY_TO_ISO2 = {
+    "united states": "us", usa: "us", "mexico": "mx", "canada": "ca", "south africa": "za", "south korea": "kr",
+    "czechia": "cz", "bosnia and herzegovina": "ba", "qatar": "qa", "switzerland": "ch", "brazil": "br", "morocco": "ma", "haiti": "ht", "scotland": "gb-sct",
+    "paraguay": "py", "australia": "au", "turkiye": "tr", "turkey": "tr", "germany": "de", "curacao": "cw", "cote d ivoire": "ci",
+    "ecuador": "ec", "netherlands": "nl", "japan": "jp", "sweden": "se", "tunisia": "tn", "belgium": "be", "egypt": "eg",
+    "ir iran": "ir", "iran": "ir", "new zealand": "nz", "spain": "es", "cabo verde": "cv", "saudi arabia": "sa",
+    "uruguay": "uy", "france": "fr", "senegal": "sn", "dr congo": "cd", "democratic republic of the congo": "cd", "norway": "no", "argentina": "ar", "algeria": "dz",
+    "austria": "at", "jordan": "jo", "portugal": "pt", "iraq": "iq", "uzbekistan": "uz", "colombia": "co", "england": "gb-eng",
+    "croatia": "hr", "ghana": "gh", "panama": "pa"
+  };
+
   const els = {};
   const state = {
     map: null,
@@ -113,6 +133,7 @@
     isolateOverlayScroll(els.filterPanel);
     isolateOverlayScroll(els.matchesView);
     isolateOverlayScroll(els.bracketView);
+    els.bracketView?.addEventListener("click", onBracketClick);
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
@@ -136,15 +157,15 @@
     state.map = new maplibregl.Map({
       container: "map",
       style: makeMapStyle(els.html.dataset.theme),
-      center: [-98.5, 39.2],
+      center: [-101.5, 43.5],
       zoom: initialZoom(),
-      minZoom: 1.35,
+      minZoom: 0.25,
       maxZoom: 8,
       pitch: 0,
       bearing: 0,
       dragRotate: false,
       attributionControl: false,
-      maxBounds: [[-145, 10], [-48, 64]]
+      maxBounds: [[-178, 0], [-25, 78]]
     });
 
     state.map.touchZoomRotate.disableRotation();
@@ -360,7 +381,7 @@
     const currentZoom = state.map.getZoom();
     state.map.flyTo({
       center: [stadium.lng, stadium.lat],
-      zoom: Math.max(currentZoom, window.innerWidth < 760 ? 3.75 : 4.05),
+      zoom: Math.max(currentZoom, window.innerWidth < 760 ? 1.85 : 2.15),
       duration: state.motionOk ? 850 : 0,
       essential: true
     });
@@ -431,7 +452,7 @@
       <div class="card-body">
         <div class="card-topline">
           <div>
-            <span class="eyebrow country-eyebrow">${flagMarkup(stadium.countryFlag, stadium.country)} ${escapeHTML(stadium.country)}</span>
+            <span class="eyebrow country-eyebrow">${flagMarkup(stadium.countryFlag, stadium.country, stadium.countryCode)} ${escapeHTML(stadium.country)}</span>
             <h2 class="card-title">${escapeHTML(stadium.venue)}</h2>
             <p class="card-sub">${escapeHTML(stadium.city)} · ${escapeHTML(stadium.region)} region</p>
           </div>
@@ -474,7 +495,7 @@
 
   function teamHTML(team) {
     const name = team?.name || team?.code || "Team TBC";
-    return `<span class="team-chip">${flagMarkup(team?.flag || "🏳️", name)}<span>${escapeHTML(name)}</span></span>`;
+    return `<span class="team-chip">${flagMarkup(team?.flag || "🏳️", name, team?.code)}<span>${escapeHTML(name)}</span></span>`;
   }
 
   function placeholderHTML(token) {
@@ -780,17 +801,43 @@
 
   function matchComputedStatus(match) {
     const apiStatus = match?.status || "upcoming";
-    if (["live", "halftime", "finished", "postponed"].includes(apiStatus)) return apiStatus;
-
+    const short = String(match?.statusShort || "").toUpperCase();
+    const label = String(match?.statusLabel || "").toLowerCase();
     const kickoff = parseMatchDate(match?.kickoff);
+    const now = Date.now();
+    const start = kickoff ? kickoff.getTime() : null;
+    const stage = String(match?.stage || "").toLowerCase();
+    const isKnockout = /(round of|quarter|semi|third|final)/.test(stage);
+    const preLiveGraceMs = 5 * 60 * 1000;
+    const normalMatchEndMs = 2 * 60 * 60 * 1000 + 5 * 60 * 1000; // group-stage safety: 2h 05m
+    const knockoutEndMs = 3 * 60 * 60 * 1000 + 15 * 60 * 1000; // ET + penalties safety
+    const endWindowMs = isKnockout ? knockoutEndMs : normalMatchEndMs;
+    const pastExpectedEnd = start !== null && now > start + endWindowMs;
+    const definitelyBeforeKickoff = start !== null && now < start - preLiveGraceMs;
+
+    // Local absolute time wins over stale live labels from cached/free API responses.
+    if (definitelyBeforeKickoff && ["1H", "2H", "ET", "BT", "P", "LIVE", "INT"].includes(short)) return "upcoming";
+
+    // Trust explicit API terminal states first.
+    if (["FT", "AET", "PEN"].includes(short) || /finished|after extra time|penalties/.test(label)) return "finished";
+    if (["PST", "CANC", "ABD", "SUSP"].includes(short) || ["postponed", "cancelled", "abandoned", "suspended"].some((word) => label.includes(word))) return "postponed";
+
+    // If the provider/cache is stale and still says live after the realistic end window,
+    // the UI must not keep a finished game glowing forever. The next refresh will still
+    // accept FT/AET/PEN from the API when it arrives.
+    if (pastExpectedEnd && !["ET", "BT", "P"].includes(short)) return "finished";
+
+    if (short === "HT") return "halftime";
+    if (["1H", "2H", "ET", "BT", "P", "LIVE", "INT"].includes(short) || apiStatus === "live") return "live";
+    if (apiStatus === "halftime" || apiStatus === "finished" || apiStatus === "postponed") return apiStatus;
+
     if (!kickoff) return apiStatus;
 
-    const now = Date.now();
-    const start = kickoff.getTime();
-    const liveWindowMs = 2.75 * 60 * 60 * 1000; // safety window for normal time + stoppage/ET delays
-
+    // Timezone-safe fallback. Date objects represent one absolute moment,
+    // so this works the same in KSA, USA, Mexico, Canada, or anywhere else.
+    if (now < start - preLiveGraceMs) return "upcoming";
     if (now < start) return "upcoming";
-    if (now <= start + liveWindowMs) return "live";
+    if (now <= start + endWindowMs) return "live";
     return "finished";
   }
 
@@ -859,11 +906,23 @@
     return findTeamByName(name)?.flag || "🏳️";
   }
 
-  function flagMarkup(flag, label = "flag") {
+  function flagMarkup(flag, label = "flag", code = "") {
     const safeFlag = String(flag || "🏳️");
-    const url = twemojiFlagUrl(safeFlag);
-    const img = url ? `<img src="${url}" alt="${escapeHTML(label)} flag" loading="lazy" decoding="async">` : "";
+    const iso2 = iso2FromCodeOrFlag(code, safeFlag, label);
+    const url = iso2 ? `https://flagcdn.com/w40/${iso2}.png` : twemojiFlagUrl(safeFlag);
+    const img = url ? `<img src="${url}" alt="${escapeHTML(label)} flag" loading="lazy" decoding="async" onerror="this.remove()">` : "";
     return `<span class="flag flag-render" title="${escapeHTML(label)}"><span class="flag-fallback">${escapeHTML(safeFlag)}</span>${img}</span>`;
+  }
+
+  function iso2FromCodeOrFlag(code, flag, label) {
+    const direct = FIFA_TO_ISO2[String(code || "").toUpperCase()] || COUNTRY_TO_ISO2[normalizeText(label)];
+    if (direct) return direct;
+    const chars = Array.from(String(flag || ""));
+    const codes = chars.map((char) => char.codePointAt(0));
+    if (codes.length >= 2 && codes.every((value) => value >= 0x1F1E6 && value <= 0x1F1FF)) {
+      return String.fromCharCode(...codes.map((value) => value - 0x1F1E6 + 65)).toLowerCase();
+    }
+    return "";
   }
 
   function twemojiFlagUrl(flag) {
@@ -1086,16 +1145,20 @@
   }
 
   function initialZoom() {
-    return window.innerWidth < 760 ? 1.75 : 2.22;
+    // Wide default view: the whole host region is visible before interaction.
+    return window.innerWidth < 760 ? 0.38 : 0.72;
   }
 
   function fitHostBounds(animate) {
     if (!state.map) return;
-    const bounds = new maplibregl.LngLatBounds([-132, 13], [-52, 60]);
+    // Wide North America view: Canada, USA, Mexico, and the surrounding context.
+    const bounds = new maplibregl.LngLatBounds([-176, 2], [-36, 78]);
     state.map.fitBounds(bounds, {
-      padding: window.innerWidth < 760 ? { top: 92, right: 18, bottom: 96, left: 18 } : { top: 112, right: 58, bottom: 82, left: 58 },
+      padding: window.innerWidth < 760
+        ? { top: 84, right: 8, bottom: 92, left: 8 }
+        : { top: 96, right: 24, bottom: 66, left: 24 },
       duration: animate && state.motionOk ? 900 : 0,
-      maxZoom: window.innerWidth < 760 ? 2.08 : 2.46
+      maxZoom: window.innerWidth < 760 ? 0.62 : 0.88
     });
   }
 
