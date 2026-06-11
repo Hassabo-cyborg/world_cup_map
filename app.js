@@ -3,7 +3,8 @@
 
   const DATA = window.WC_DATA || { stadiums: [], matches: [], teams: {}, stages: [] };
   const stadiums = DATA.stadiums || [];
-  const matches = DATA.matches || [];
+  const baseMatches = DATA.matches || [];
+  let matches = baseMatches.map((match) => ({ ...match }));
   const teams = DATA.teams || {};
   const stages = DATA.stages || [];
 
@@ -16,7 +17,17 @@
     filters: { search: "", country: "all", round: "all", team: "all" },
     filteredStadiumIds: new Set(stadiums.map((s) => s.id)),
     motionOk: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    activeBracketMatch: null
+    activeBracketMatch: null,
+    live: {
+      enabled: true,
+      loading: false,
+      ok: false,
+      mode: "static",
+      lastUpdated: null,
+      quota: null,
+      timer: null,
+      error: ""
+    }
   };
 
   document.addEventListener("DOMContentLoaded", init);
@@ -31,6 +42,7 @@
     renderBracketView();
     initMap();
     setView("map");
+    setupLiveData();
   }
 
   function bindEls() {
@@ -50,6 +62,8 @@
     els.mxCount = document.getElementById("mxCount");
     els.caCount = document.getElementById("caCount");
     els.mapHint = document.getElementById("mapHint");
+    els.liveStatus = document.getElementById("liveStatus");
+    els.refreshLive = document.getElementById("refreshLive");
   }
 
   function applyTheme() {
@@ -66,6 +80,10 @@
       closeAllCards();
       setView("map");
       fitHostBounds(true);
+    });
+
+    els.refreshLive?.addEventListener("click", () => {
+      fetchLiveFixtures({ force: true });
     });
 
     document.getElementById("themeToggle")?.addEventListener("click", () => {
@@ -300,7 +318,8 @@
         city: stadium.city,
         venue: stadium.venue,
         country: stadium.country,
-        color: countryColor(stadium.country),
+        color: stadiumColor(stadium),
+        liveStatus: stadiumLiveStatus(stadium.id),
         matches: stadium.totalMatches
       },
       geometry: { type: "Point", coordinates: [stadium.lng, stadium.lat] }
@@ -398,6 +417,7 @@
   }
 
   function cardHTML(stadium, next, detail, stadiumMatches = []) {
+    const computedStatus = stadiumLiveStatus(stadium.id);
     return `
       <div class="venue-strip" data-code="${escapeHTML(stadium.airportCode || stadium.city.slice(0, 3).toUpperCase())}"></div>
       <div class="card-body">
@@ -412,11 +432,11 @@
         <div class="stats">
           <div class="stat"><b>${formatNumber(stadium.capacity)}</b><span>Capacity</span></div>
           <div class="stat"><b>${stadium.totalMatches}</b><span>Games</span></div>
-          <div class="stat"><b>${escapeHTML(stadium.status)}</b><span>Status</span></div>
+          <div class="stat"><b>${escapeHTML(computedStatus)}</b><span>Status</span></div>
         </div>
         <div class="next-match">
           <small>Next match</small>
-          ${next ? `<strong>${matchTeams(next)}</strong><span>${formatDate(next.kickoff)} · ${escapeHTML(next.stage)}</span>` : `<strong>No match listed</strong><span>Dataset has no game for this venue</span>`}
+          ${next ? `<strong>${matchTeams(next)} ${matchScoreHTML(next)}</strong><span>${matchStatusHTML(next)} ${formatDate(next.kickoff)} · ${escapeHTML(next.stage)}</span>` : `<strong>No match listed</strong><span>Dataset has no game for this venue</span>`}
         </div>
       </div>
       ${detail ? `<div class="detail-scroll"><div class="match-list">${stadiumMatches.map(matchRowHTML).join("")}</div></div>` : ""}
@@ -428,7 +448,7 @@
       <article class="match-row">
         <div class="match-no">M${match.matchNumber}</div>
         <div class="match-teams">${matchTeams(match)}</div>
-        <div class="match-meta">${escapeHTML(match.stage)}<br>${formatDate(match.kickoff)}</div>
+        <div class="match-meta">${matchStatusHTML(match)} ${matchScoreHTML(match)}<br>${escapeHTML(match.stage)}<br>${formatDate(match.kickoff)}</div>
       </article>
     `;
   }
@@ -564,6 +584,249 @@
     renderLegend();
   }
 
+
+  function setupLiveData() {
+    updateLiveStatusBadge();
+    fetchLiveFixtures({ force: false });
+    const intervalMs = DATA.meta?.liveRefreshMs || 20 * 60 * 1000;
+    state.live.timer = window.setInterval(() => fetchLiveFixtures({ force: false }), intervalMs);
+  }
+
+  async function fetchLiveFixtures({ force = false } = {}) {
+    if (state.live.loading) return;
+    state.live.loading = true;
+    updateLiveStatusBadge(force ? "Refreshing…" : undefined);
+    try {
+      const url = `/api/worldcup?resource=fixtures`;
+      const response = await fetch(url, { headers: { "Accept": "application/json" } });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok || json.ok === false) {
+        throw new Error(json.message || json.error || `Live API failed (${response.status})`);
+      }
+      const payload = json.payload || json;
+      const fixtures = Array.isArray(payload.response) ? payload.response : [];
+      mergeLiveFixtures(fixtures);
+      state.live.ok = true;
+      state.live.mode = "live";
+      state.live.lastUpdated = json.fetchedAt || new Date().toISOString();
+      state.live.quota = json.quota || null;
+      state.live.error = "";
+      rerenderAfterLiveUpdate();
+    } catch (error) {
+      state.live.ok = false;
+      state.live.mode = "static";
+      state.live.error = error.message || "Live API unavailable";
+      updateLiveStatusBadge();
+      // The website remains fully functional from the static dataset.
+    } finally {
+      state.live.loading = false;
+      updateLiveStatusBadge();
+    }
+  }
+
+  function mergeLiveFixtures(fixtures) {
+    if (!fixtures.length) return;
+    const fixtureIndex = buildFixtureIndex(fixtures);
+    matches = baseMatches.map((base) => {
+      const fixture = findFixtureForMatch(base, fixtureIndex);
+      return fixture ? mergeMatchWithFixture(base, fixture) : { ...base };
+    });
+  }
+
+  function buildFixtureIndex(fixtures) {
+    const byTeamDay = new Map();
+    const byVenueDay = new Map();
+    fixtures.forEach((fixture) => {
+      const home = normalizeTeamName(fixture?.teams?.home?.name);
+      const away = normalizeTeamName(fixture?.teams?.away?.name);
+      const day = dayKey(fixture?.fixture?.date);
+      const venue = normalizeText(fixture?.fixture?.venue?.name || fixture?.fixture?.venue?.city);
+      if (day && home && away) {
+        byTeamDay.set(`${day}|${home}|${away}`, fixture);
+        byTeamDay.set(`${day}|${away}|${home}`, fixture);
+      }
+      if (day && venue) {
+        const key = `${day}|${venue}`;
+        if (!byVenueDay.has(key)) byVenueDay.set(key, []);
+        byVenueDay.get(key).push(fixture);
+      }
+    });
+    return { byTeamDay, byVenueDay };
+  }
+
+  function findFixtureForMatch(match, index) {
+    const day = dayKey(match.kickoff);
+    const home = normalizeTeamName(match.homeTeam?.name);
+    const away = normalizeTeamName(match.awayTeam?.name);
+    if (day && home && away) {
+      const byTeams = index.byTeamDay.get(`${day}|${home}|${away}`) || index.byTeamDay.get(`${day}|${away}|${home}`);
+      if (byTeams) return byTeams;
+    }
+    const stadium = getStadium(match.stadiumId);
+    const venueKeys = [stadium?.venue, stadium?.city].map(normalizeText).filter(Boolean);
+    for (const keyPart of venueKeys) {
+      const candidates = index.byVenueDay.get(`${day}|${keyPart}`) || [];
+      if (candidates.length === 1) return candidates[0];
+      const exact = candidates.find((fixture) => {
+        const apiHome = normalizeTeamName(fixture?.teams?.home?.name);
+        const apiAway = normalizeTeamName(fixture?.teams?.away?.name);
+        return home && away && ((home === apiHome && away === apiAway) || (home === apiAway && away === apiHome));
+      });
+      if (exact) return exact;
+    }
+    return null;
+  }
+
+  function mergeMatchWithFixture(base, fixture) {
+    const status = fixture?.fixture?.status || {};
+    const goals = fixture?.goals || {};
+    const homeTeam = apiTeamToLocal(fixture?.teams?.home, base.homeTeam);
+    const awayTeam = apiTeamToLocal(fixture?.teams?.away, base.awayTeam);
+    return {
+      ...base,
+      apiFixtureId: fixture?.fixture?.id || base.apiFixtureId,
+      kickoff: fixture?.fixture?.date || base.kickoff,
+      homeTeam,
+      awayTeam,
+      homeTeamId: homeTeam?.id ?? base.homeTeamId,
+      awayTeamId: awayTeam?.id ?? base.awayTeamId,
+      display: homeTeam && awayTeam ? `${homeTeam.name} vs ${awayTeam.name}` : base.display,
+      status: mapApiStatus(status.short || status.long),
+      statusShort: status.short || base.statusShort || "NS",
+      statusLabel: status.long || base.statusLabel || "Scheduled",
+      elapsed: status.elapsed ?? null,
+      goalsHome: numberOrNull(goals.home),
+      goalsAway: numberOrNull(goals.away),
+      score: fixture?.score || null,
+      hasLiveData: true,
+      winner: fixture?.teams?.home?.winner ? "home" : fixture?.teams?.away?.winner ? "away" : null,
+      apiUpdatedAt: new Date().toISOString()
+    };
+  }
+
+  function apiTeamToLocal(apiTeam, fallback) {
+    if (!apiTeam?.name && fallback) return fallback;
+    const byName = findTeamByName(apiTeam?.name);
+    return {
+      ...(fallback || {}),
+      ...(byName || {}),
+      id: byName?.id ?? fallback?.id ?? apiTeam?.id ?? null,
+      name: byName?.name || apiTeam?.name || fallback?.name || "Team TBC",
+      code: byName?.code || fallback?.code || makeCode(apiTeam?.name),
+      flag: byName?.flag || fallback?.flag || flagForTeamName(apiTeam?.name) || "🏳️",
+      logo: apiTeam?.logo || fallback?.logo || "",
+      winner: Boolean(apiTeam?.winner)
+    };
+  }
+
+  function mapApiStatus(status) {
+    const short = String(status || "").toUpperCase();
+    if (["1H", "2H", "ET", "BT", "P", "LIVE", "INT"].includes(short)) return "live";
+    if (short === "HT") return "halftime";
+    if (["FT", "AET", "PEN"].includes(short)) return "finished";
+    if (["PST", "CANC", "ABD", "SUSP"].includes(short)) return "postponed";
+    return "upcoming";
+  }
+
+  function rerenderAfterLiveUpdate() {
+    if (state.map?.getSource("stadiums")) state.map.getSource("stadiums").setData(stadiumGeoJSON());
+    renderMatchesView();
+    renderBracketView();
+    renderLegend();
+    if (state.selectedId) {
+      const stadium = getStadium(state.selectedId);
+      if (stadium) openDetailCard(stadium, window.innerWidth / 2, window.innerHeight / 2);
+    }
+  }
+
+  function updateLiveStatusBadge(label) {
+    if (!els.liveStatus) return;
+    if (label) {
+      els.liveStatus.textContent = label;
+      els.liveStatus.dataset.state = "loading";
+      return;
+    }
+    if (state.live.ok) {
+      const remaining = state.live.quota?.remaining ?? state.live.quota?.requestsRemaining ?? null;
+      els.liveStatus.textContent = remaining === null ? "Live data" : `Live · ${remaining} left`;
+      els.liveStatus.title = `Last update: ${formatLiveUpdated(state.live.lastUpdated)}`;
+      els.liveStatus.dataset.state = "live";
+    } else {
+      els.liveStatus.textContent = "Static mode";
+      els.liveStatus.title = state.live.error || "Static dataset shown until the Vercel API key is configured.";
+      els.liveStatus.dataset.state = "static";
+    }
+  }
+
+  function formatLiveUpdated(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "not yet";
+    return new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(date);
+  }
+
+  function isLive(match) {
+    return ["live", "halftime"].includes(match?.status);
+  }
+
+  function isFinished(match) {
+    return match?.status === "finished";
+  }
+
+  function matchStatusHTML(match) {
+    const status = match?.status || "upcoming";
+    const label = isLive(match)
+      ? `${match.status === "halftime" ? "HT" : "LIVE"}${match.elapsed ? ` ${match.elapsed}'` : ""}`
+      : isFinished(match)
+        ? "FT"
+        : match?.statusLabel || status;
+    return `<span class="status-pill ${escapeHTML(status)}">${escapeHTML(label)}</span>`;
+  }
+
+  function matchScoreHTML(match) {
+    if (match?.goalsHome === null || match?.goalsHome === undefined || match?.goalsAway === null || match?.goalsAway === undefined) return "";
+    return `<span class="score-pill">${escapeHTML(match.goalsHome)} - ${escapeHTML(match.goalsAway)}</span>`;
+  }
+
+  function stadiumLiveStatus(stadiumId) {
+    const stadiumMatches = getStadiumMatches(stadiumId);
+    if (stadiumMatches.some(isLive)) return "live";
+    if (stadiumMatches.some((m) => m.stage === "Final")) return "final";
+    if (stadiumMatches.some((m) => m.stageOrder > 1 && !isFinished(m))) return "knockout";
+    if (stadiumMatches.length && stadiumMatches.every(isFinished)) return "finished";
+    return "upcoming";
+  }
+
+  function normalizeTeamName(value) {
+    return normalizeText(value).replace(/^usa$/i, "united states").replace(/^u\.s\.a\.$/i, "united states");
+  }
+
+  function normalizeText(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+
+  function findTeamByName(name) {
+    const normalized = normalizeTeamName(name);
+    return Object.values(teams).find((team) => normalizeTeamName(team.name) === normalized || normalizeTeamName(team.code) === normalized);
+  }
+
+  function makeCode(name) {
+    return String(name || "TBC").replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase() || "TBC";
+  }
+
+  function flagForTeamName(name) {
+    return findTeamByName(name)?.flag || "🏳️";
+  }
+
+  function numberOrNull(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
   function populateFilters() {
     unique(stadiums.map((s) => s.country)).forEach((country) => addOption(els.countryFilter, country, country));
     stages.slice().sort((a, b) => a.order - b.order).forEach((stage) => addOption(els.roundFilter, stage.name, stage.name));
@@ -620,7 +883,8 @@
     const stadium = getStadium(match.stadiumId);
     return `<article class="match-card">
       <header><span>M${match.matchNumber}</span><span>${escapeHTML(match.stage)}</span></header>
-      <h3>${matchTeams(match)}</h3>
+      <h3>${matchTeams(match)} ${matchScoreHTML(match)}</h3>
+      <div class="match-live-line">${matchStatusHTML(match)}</div>
       ${match.label && !match.homeTeam && !match.awayTeam ? `<p class="code-explain">${explainMatchLabel(match.label)}</p>` : ""}
       <p>${formatTime(match.kickoff)}<br>${escapeHTML(stadium?.venue || "Venue TBC")} · ${escapeHTML(stadium?.city || "City TBC")}</p>
     </article>`;
@@ -670,8 +934,8 @@
     const active = state.activeBracketMatch === match.matchNumber;
     return `<article class="bracket-node ${match.stage === "Final" ? "final" : ""} ${active ? "selected" : ""}" data-match="${match.matchNumber}" tabindex="0" role="button" aria-label="Open match ${match.matchNumber}">
       <div class="node-top"><span>M${match.matchNumber}</span><span>${formatShortDate(match.kickoff)}</span></div>
-      <div class="node-teams">${matchTeams(match)}</div>
-      <div class="node-code">${escapeHTML(match.label || match.display || "Teams TBC")}</div>
+      <div class="node-teams">${matchTeams(match)} ${matchScoreHTML(match)}</div>
+      <div class="node-code">${matchStatusHTML(match)} ${escapeHTML(match.label || match.display || "Teams TBC")}</div>
       <div class="node-meta">${escapeHTML(getStadium(match.stadiumId)?.city || "City TBC")} · ${formatTime(match.kickoff)}</div>
     </article>`;
   }
@@ -683,7 +947,8 @@
     const next = getNextBracketMatch(match.matchNumber);
     return `<span class="eyebrow">Selected match</span>
       <h3>M${match.matchNumber} · ${escapeHTML(match.stage)}</h3>
-      <div class="detail-fixture">${matchTeams(match)}</div>
+      <div class="detail-fixture">${matchTeams(match)} ${matchScoreHTML(match)}</div>
+      <p>${matchStatusHTML(match)}</p>
       <p>${explainMatchLabel(match.label || match.display || "")}</p>
       <div class="detail-meta-grid">
         <div><small>Date</small><strong>${formatDate(match.kickoff)}</strong></div>
@@ -744,7 +1009,8 @@
   }
 
   function getNextMatch(stadiumId) {
-    return getStadiumMatches(stadiumId)[0] || null;
+    const stadiumMatches = getStadiumMatches(stadiumId);
+    return stadiumMatches.find((match) => !isFinished(match)) || stadiumMatches[stadiumMatches.length - 1] || null;
   }
 
   function compareMatchesChronological(a, b) {
@@ -777,6 +1043,15 @@
     if (country === "Mexico") return "#d8a236";
     if (country === "Canada") return "#ff2f8c";
     return "#ff715f";
+  }
+
+  function stadiumColor(stadium) {
+    const status = stadiumLiveStatus(stadium.id);
+    if (status === "live") return "#2de2ff";
+    if (status === "final") return "#ffd76b";
+    if (status === "knockout") return "#d8b35f";
+    if (status === "finished") return els.html.dataset.theme === "light" ? "#6b6f66" : "#8d8a7e";
+    return countryColor(stadium.country);
   }
 
   function formatNumber(value) {
