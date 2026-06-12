@@ -45,6 +45,8 @@
       mode: "static",
       lastUpdated: null,
       quota: null,
+      provider: "static",
+      providerName: "Static dataset",
       timer: null,
       error: ""
     }
@@ -634,24 +636,45 @@
         throw new Error(json.message || json.error || `Live API failed (${response.status})`);
       }
       const payload = json.payload || json;
+      const apiError = extractApiError(payload) || json.message || "";
       const fixtures = Array.isArray(payload.response) ? payload.response : [];
+      if (apiError || fixtures.length === 0) {
+        throw new Error(apiError || "API returned no 2026 fixtures on this plan. Static data is being used.");
+      }
       mergeLiveFixtures(fixtures);
       state.live.ok = true;
       state.live.mode = "live";
       state.live.lastUpdated = json.fetchedAt || new Date().toISOString();
       state.live.quota = json.quota || null;
-      state.live.error = "";
+      state.live.provider = json.provider || payload.provider || "free-data";
+      state.live.providerName = json.providerName || payload.provider || "Free data";
+      state.live.error = json.message || "";
       rerenderAfterLiveUpdate();
     } catch (error) {
       state.live.ok = false;
       state.live.mode = "static";
       state.live.error = error.message || "Live API unavailable";
+      matches = baseMatches.map((match) => ({ ...match }));
+      rerenderAfterLiveUpdate();
       updateLiveStatusBadge();
-      // The website remains fully functional from the static dataset.
+      // The website remains fully functional from the static dataset / manual results.
     } finally {
       state.live.loading = false;
       updateLiveStatusBadge();
     }
+  }
+
+
+  function extractApiError(payload) {
+    const errors = payload?.errors;
+    if (!errors) return "";
+    if (Array.isArray(errors) && errors.length) return errors.join("; ");
+    if (typeof errors === "string" && errors.trim()) return errors.trim();
+    if (typeof errors === "object") {
+      const values = Object.values(errors).filter(Boolean).map(String);
+      if (values.length) return values.join("; ");
+    }
+    return "";
   }
 
   function mergeLiveFixtures(fixtures) {
@@ -777,13 +800,16 @@
       return;
     }
     if (state.live.ok) {
-      const remaining = state.live.quota?.remaining ?? state.live.quota?.requestsRemaining ?? null;
-      els.liveStatus.textContent = remaining === null ? "Live data" : `Live · ${remaining} left`;
-      els.liveStatus.title = `Last update: ${formatLiveUpdated(state.live.lastUpdated)}`;
+      const remaining = state.live.quota?.remaining ?? state.live.quota?.requestsRemaining ?? state.live.quota?.minuteRemaining ?? null;
+      const provider = state.live.providerName || "Free data";
+      const label = state.live.provider === "openfootball" ? "Free public data" : state.live.provider === "football-data" ? "Free scores" : "Live data";
+      els.liveStatus.textContent = remaining === null ? label : `${label} · ${remaining} left`;
+      els.liveStatus.title = `${provider}. Last update: ${formatLiveUpdated(state.live.lastUpdated)}${state.live.error ? ` — ${state.live.error}` : ""}`;
       els.liveStatus.dataset.state = "live";
     } else {
-      els.liveStatus.textContent = "Static mode";
-      els.liveStatus.title = state.live.error || "Static dataset shown until the Vercel API key is configured.";
+      const blocked = /free plans do not have access|no 2026 fixtures|no fixtures|restricted|forbidden/i.test(state.live.error || "");
+      els.liveStatus.textContent = blocked ? "Static · API locked" : "Static mode";
+      els.liveStatus.title = state.live.error || "Static dataset shown until live API data is available.";
       els.liveStatus.dataset.state = "static";
     }
   }

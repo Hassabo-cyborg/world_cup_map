@@ -3,8 +3,8 @@ window.WC_DATA = {
   "meta": {
     "title": "World Cup 2026 Map",
     "defaultTheme": "dark",
-    "version": "realmap-v10-3-updated-data-production-fix",
-    "source": "Updated uploaded World Cup 2026 DB/CSV dataset with API-Football live overlay",
+    "version": "realmap-v10-6-free-provider",
+    "source": "Updated uploaded World Cup 2026 DB/CSV dataset with football-data.org/OpenFootball free provider overlay",
     "liveRefreshMs": 1200000
   },
   "stadiums": [
@@ -901,12 +901,12 @@ window.WC_DATA = {
       "kickoff": "2026-06-11 15:00:00-06",
       "label": "Group A",
       "display": "Mexico vs South Africa",
-      "status": "upcoming",
-      "statusShort": "NS",
-      "statusLabel": "Scheduled",
-      "goalsHome": null,
-      "goalsAway": null,
-      "winner": null,
+      "status": "finished",
+      "statusShort": "FT",
+      "statusLabel": "Match Finished",
+      "goalsHome": 2,
+      "goalsAway": 0,
+      "winner": "home",
       "weather": "TBC"
     },
     {
