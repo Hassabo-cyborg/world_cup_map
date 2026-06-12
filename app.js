@@ -38,6 +38,7 @@
     filteredStadiumIds: new Set(stadiums.map((s) => s.id)),
     motionOk: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     activeBracketMatch: null,
+    focusMatchNumber: null,
     live: {
       enabled: true,
       loading: false,
@@ -135,6 +136,18 @@
     isolateOverlayScroll(els.filterPanel);
     isolateOverlayScroll(els.matchesView);
     isolateOverlayScroll(els.bracketView);
+
+    els.matchesView?.addEventListener("click", onMatchesClick);
+    els.matchesView?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        const card = event.target.closest("[data-focus-match]");
+        if (card) {
+          event.preventDefault();
+          openMatchOnMap(Number(card.dataset.focusMatch));
+        }
+      }
+    });
+    els.bracketView?.addEventListener("click", onBracketClick);
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
@@ -378,15 +391,8 @@
     if (!stadium) return;
     hideHoverCard();
     setSelectedFeature(id);
-    openDetailCard(stadium, event.originalEvent.clientX, event.originalEvent.clientY);
-    const currentZoom = state.map.getZoom();
-    state.map.flyTo({
-      center: [stadium.lng, stadium.lat],
-      // Mild focus only. Keep North America context instead of drilling into a city.
-      zoom: Math.min(Math.max(currentZoom, window.innerWidth < 760 ? 0.82 : 1.05), window.innerWidth < 760 ? 1.05 : 1.25),
-      duration: state.motionOk ? 850 : 0,
-      essential: true
-    });
+    openDetailCard(stadium, event.originalEvent.clientX, event.originalEvent.clientY, null);
+    flyToStadium(stadium, { source: "map" });
   }
 
   function setSelectedFeature(id) {
@@ -406,10 +412,11 @@
     positionCard(els.hoverCard, x + 18, y + 18);
   }
 
-  function openDetailCard(stadium, x, y) {
+  function openDetailCard(stadium, x, y, focusMatchNumber = null) {
     const next = getNextMatch(stadium.id);
     const stadiumMatches = getStadiumMatches(stadium.id);
-    els.detailCard.innerHTML = cardHTML(stadium, next, true, stadiumMatches);
+    state.focusMatchNumber = focusMatchNumber;
+    els.detailCard.innerHTML = cardHTML(stadium, next, true, stadiumMatches, focusMatchNumber);
     els.detailCard.classList.remove("hidden");
     els.detailCard.scrollTop = 0;
     const detailScroll = els.detailCard.querySelector(".detail-scroll");
@@ -447,8 +454,11 @@
     card.style.bottom = "auto";
   }
 
-  function cardHTML(stadium, next, detail, stadiumMatches = []) {
+  function cardHTML(stadium, next, detail, stadiumMatches = [], focusMatchNumber = null) {
     const computedStatus = stadiumLiveStatus(stadium.id);
+    const focused = focusMatchNumber ? getMatch(focusMatchNumber) : null;
+    const primary = focused || next;
+    const primaryLabel = focused ? "Selected match" : "Next match";
     return `
       <div class="venue-strip" data-code="${escapeHTML(stadium.airportCode || stadium.city.slice(0, 3).toUpperCase())}"></div>
       <div class="card-body">
@@ -465,18 +475,19 @@
           <div class="stat"><b>${stadium.totalMatches}</b><span>Games</span></div>
           <div class="stat"><b>${escapeHTML(computedStatus)}</b><span>Status</span></div>
         </div>
-        <div class="next-match">
-          <small>Next match</small>
-          ${next ? `<strong>${matchTeams(next)} ${matchScoreHTML(next)}</strong><span>${matchStatusHTML(next)} ${formatDate(next.kickoff)} · ${escapeHTML(next.stage)}</span>` : `<strong>No match listed</strong><span>Dataset has no game for this venue</span>`}
+        <div class="next-match primary-match ${focused ? "selected-primary" : ""}">
+          <small>${primaryLabel}</small>
+          ${primary ? `<strong>${matchTeams(primary)} ${matchScoreHTML(primary)}</strong><span>${matchStatusHTML(primary)} ${formatDate(primary.kickoff)} · ${escapeHTML(primary.stage)}</span>` : `<strong>No match listed</strong><span>Dataset has no game for this venue</span>`}
         </div>
       </div>
-      ${detail ? `<div class="detail-scroll"><div class="match-list">${stadiumMatches.map(matchRowHTML).join("")}</div></div>` : ""}
+      ${detail ? `<div class="detail-scroll"><div class="match-list">${stadiumMatches.map((match) => matchRowHTML(match, focusMatchNumber)).join("")}</div></div>` : ""}
     `;
   }
 
-  function matchRowHTML(match) {
+  function matchRowHTML(match, focusMatchNumber = null) {
+    const focused = Number(match.matchNumber) === Number(focusMatchNumber);
     return `
-      <article class="match-row">
+      <article class="match-row ${focused ? "focused" : ""}" data-focus-match="${escapeHTML(match.matchNumber)}">
         <div class="match-no">M${match.matchNumber}</div>
         <div class="match-teams">${matchTeams(match)}</div>
         <div class="match-meta">${matchStatusHTML(match)} ${matchScoreHTML(match)}<br>${escapeHTML(match.stage)}<br>${formatDate(match.kickoff)}</div>
@@ -574,6 +585,53 @@
     renderBracketView();
   }
 
+  function onMatchesClick(event) {
+    const card = event.target.closest("[data-focus-match]");
+    if (!card) return;
+    const matchNumber = Number(card.dataset.focusMatch);
+    if (!matchNumber) return;
+    openMatchOnMap(matchNumber);
+  }
+
+  function openMatchOnMap(matchNumber) {
+    const match = getMatch(matchNumber);
+    if (!match) return;
+    const stadium = getStadium(match.stadiumId);
+    if (!stadium) return;
+
+    setView("map");
+    closeFilters();
+    hideHoverCard();
+    setSelectedFeature(stadium.id);
+    state.focusMatchNumber = matchNumber;
+    els.mapHint.textContent = `M${match.matchNumber} · ${stadium.city}`;
+
+    flyToStadium(stadium, { source: "match" });
+
+    window.setTimeout(() => {
+      const point = state.map?.project([stadium.lng, stadium.lat]);
+      const rect = els.mapStage.getBoundingClientRect();
+      const x = point ? rect.left + point.x + 18 : window.innerWidth * 0.52;
+      const y = point ? rect.top + point.y + 18 : window.innerHeight * 0.28;
+      openDetailCard(stadium, x, y, matchNumber);
+    }, state.motionOk ? 360 : 0);
+  }
+
+  function flyToStadium(stadium, options = {}) {
+    if (!state.map || !stadium) return;
+    const currentZoom = state.map.getZoom();
+    const mobile = window.innerWidth < 760;
+    const targetZoom = options.source === "match"
+      ? (mobile ? 1.25 : 1.55)
+      : Math.min(Math.max(currentZoom, mobile ? 0.85 : 1.0), mobile ? 1.15 : 1.35);
+    state.map.flyTo({
+      center: [stadium.lng, stadium.lat],
+      zoom: targetZoom,
+      duration: state.motionOk ? 850 : 0,
+      essential: true
+    });
+  }
+
   function hideHoverCard() {
     els.hoverCard.classList.add("hidden");
   }
@@ -582,6 +640,7 @@
     hideHoverCard();
     els.detailCard.classList.add("hidden");
     els.mapHint.textContent = "Hover a stadium point";
+    state.focusMatchNumber = null;
     setSelectedFeature(null);
   }
 
@@ -1036,12 +1095,19 @@
 
   function matchCardHTML(match) {
     const stadium = getStadium(match.stadiumId);
-    return `<article class="match-card">
+    const status = matchComputedStatus(match);
+    return `<article class="match-card ${escapeHTML(status)}" data-focus-match="${escapeHTML(match.matchNumber)}" tabindex="0" role="button" aria-label="Show match ${escapeHTML(match.matchNumber)} on the map">
       <header><span>M${match.matchNumber}</span><span>${escapeHTML(match.stage)}</span></header>
-      <h3>${matchTeams(match)} ${matchScoreHTML(match)}</h3>
+      <h3>${matchTeams(match)}</h3>
+      <div class="match-score-line">${matchScoreHTML(match) || `<span class="score-placeholder">Score TBC</span>`}</div>
       <div class="match-live-line">${matchStatusHTML(match)}</div>
       ${match.label && !match.homeTeam && !match.awayTeam ? `<p class="code-explain">${explainMatchLabel(match.label)}</p>` : ""}
-      <p>${formatTime(match.kickoff)}<br>${escapeHTML(stadium?.venue || "Venue TBC")} · ${escapeHTML(stadium?.city || "City TBC")}</p>
+      <div class="match-info-grid">
+        <div><small>Kickoff</small><strong>${formatDate(match.kickoff)}</strong></div>
+        <div><small>Venue</small><strong>${escapeHTML(stadium?.venue || "Venue TBC")}</strong></div>
+        <div><small>City</small><strong>${escapeHTML(stadium?.city || "City TBC")}${stadium?.country ? ` · ${escapeHTML(stadium.country)}` : ""}</strong></div>
+      </div>
+      <button type="button" class="show-on-map" tabindex="-1">Show on map</button>
     </article>`;
   }
 
@@ -1180,18 +1246,17 @@
   }
 
   function initialZoom() {
-    // Very wide default: all host countries remain visible immediately.
-    return window.innerWidth < 760 ? 0.2 : 0.75;
+    // Production default: wide enough to see the full host region immediately.
+    return window.innerWidth < 760 ? 0.05 : 0.35;
   }
 
   function fitHostBounds(animate) {
     if (!state.map) return;
     const mobile = window.innerWidth < 760;
-    // Explicit camera is more reliable than fitBounds at very low zoom levels
-    // across different phone/desktop aspect ratios.
+    // Keep the whole North American host context visible on load/reset.
     state.map.easeTo({
-      center: mobile ? [-102, 46] : [-104, 48],
-      zoom: mobile ? 0.35 : 0.82,
+      center: mobile ? [-104, 45] : [-103, 44],
+      zoom: mobile ? 0.16 : 0.42,
       bearing: 0,
       pitch: 0,
       duration: animate && state.motionOk ? 900 : 0,
