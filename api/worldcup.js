@@ -25,7 +25,7 @@ module.exports = async function handler(req, res) {
   const resource = String(query.resource || "fixtures").toLowerCase();
   const forceFresh = query.fresh === "1" || query.force === "1";
 
-  if (!["fixtures", "standings", "coverage", "events"].includes(resource)) {
+  if (!["fixtures", "standings", "coverage", "events", "clock"].includes(resource)) {
     return res.status(400).json({ ok: false, message: `Unsupported resource: ${resource}` });
   }
 
@@ -40,7 +40,9 @@ module.exports = async function handler(req, res) {
   try {
     let body;
 
-    if (resource === "fixtures") {
+    if (resource === "clock") {
+      body = { ok: true, resource: "clock", provider: "server", providerName: "Server clock", fetchedAt: new Date().toISOString(), payload: { now: new Date().toISOString() } };
+    } else if (resource === "fixtures") {
       body = await getFixtures(query);
     } else if (resource === "standings") {
       body = await getStandings(query);
@@ -346,6 +348,7 @@ function openFootballDateToISO(dateValue, timeValue) {
 }
 
 function cachePolicy(resource, body) {
+  if (resource === "clock") return { cdnSeconds: 0, staleSeconds: 0 };
   if (resource === "standings") return { cdnSeconds: 2 * 60 * 60, staleSeconds: 60 * 60 };
   if (resource === "coverage") return { cdnSeconds: 24 * 60 * 60, staleSeconds: 24 * 60 * 60 };
   if (resource === "events") return { cdnSeconds: 5 * 60, staleSeconds: 5 * 60 };
@@ -353,7 +356,7 @@ function cachePolicy(resource, body) {
   const fixtures = Array.isArray(body?.payload?.response) ? body.payload.response : [];
   const active = hasActiveFixtureWindow(fixtures);
   return active
-    ? { cdnSeconds: 5 * 60, staleSeconds: 60 }
+    ? { cdnSeconds: 60, staleSeconds: 30 }
     : { cdnSeconds: 20 * 60, staleSeconds: 5 * 60 };
 }
 
