@@ -51,6 +51,7 @@
       provider: "static",
       providerName: "Static dataset",
       timer: null,
+      clockTimer: null,
       error: ""
     }
   };
@@ -884,8 +885,26 @@
   function setupLiveData() {
     updateLiveStatusBadge();
     fetchLiveFixtures({ force: false });
-    const intervalMs = DATA.meta?.liveRefreshMs || 20 * 60 * 1000;
+
+    // Network refresh: protected by the Vercel/backend cache.
+    // Local clock refresh: updates LIVE / HT / FT state without spending API requests.
+    const intervalMs = DATA.meta?.liveRefreshMs || 5 * 60 * 1000;
     state.live.timer = window.setInterval(() => fetchLiveFixtures({ force: false }), intervalMs);
+    state.live.clockTimer = window.setInterval(refreshClockSensitiveUI, 30 * 1000);
+  }
+
+  function refreshClockSensitiveUI() {
+    renderMatchesView();
+    renderBracketView();
+    renderLegend();
+    if (state.map?.getSource("stadiums")) state.map.getSource("stadiums").setData(stadiumGeoJSON());
+    if (state.selectedId) {
+      const stadium = getStadium(state.selectedId);
+      if (stadium) {
+        renderDetailCard(stadium);
+        positionTetheredCard();
+      }
+    }
   }
 
   async function fetchLiveFixtures({ force = false } = {}) {
@@ -951,9 +970,13 @@
   }
 
   function buildFixtureIndex(fixtures) {
+    const byNumber = new Map();
     const byTeamDay = new Map();
     const byVenueDay = new Map();
     fixtures.forEach((fixture) => {
+      const number = numberOrNull(fixture?.fixture?.id);
+      if (number !== null) byNumber.set(String(number), fixture);
+
       const home = normalizeTeamName(fixture?.teams?.home?.name);
       const away = normalizeTeamName(fixture?.teams?.away?.name);
       const day = dayKey(fixture?.fixture?.date);
@@ -968,10 +991,13 @@
         byVenueDay.get(key).push(fixture);
       }
     });
-    return { byTeamDay, byVenueDay };
+    return { byNumber, byTeamDay, byVenueDay };
   }
 
   function findFixtureForMatch(match, index) {
+    const matchNumber = String(match?.matchNumber || match?.id || "");
+    if (matchNumber && index.byNumber?.has(matchNumber)) return index.byNumber.get(matchNumber);
+
     const day = dayKey(match.kickoff);
     const home = normalizeTeamName(match.homeTeam?.name);
     const away = normalizeTeamName(match.awayTeam?.name);
@@ -1093,46 +1119,56 @@
     const apiStatus = match?.status || "upcoming";
     const short = String(match?.statusShort || "").toUpperCase();
     const label = String(match?.statusLabel || "").toLowerCase();
-    const kickoff = parseMatchDate(match?.kickoff);
-    const now = Date.now();
-    const start = kickoff ? kickoff.getTime() : null;
-    const stage = String(match?.stage || "").toLowerCase();
-    const isKnockout = /(round of|quarter|semi|third|final)/.test(stage);
+    const clock = matchClockState(match);
 
     const explicitLive = ["1H", "2H", "ET", "BT", "P", "LIVE", "INT"].includes(short) || apiStatus === "live";
     const explicitHalf = short === "HT" || apiStatus === "halftime";
     const explicitFinished = ["FT", "AET", "PEN"].includes(short) || /finished|after extra time|penalties/.test(label) || apiStatus === "finished";
     const explicitPostponed = ["PST", "CANC", "ABD", "SUSP"].includes(short) || ["postponed", "cancelled", "abandoned", "suspended"].some((word) => label.includes(word)) || apiStatus === "postponed";
 
-    // Hard safety windows. These prevent a stale API/cache response from showing LIVE
-    // long after the match should already have ended. Time is absolute, so this behaves
-    // the same in KSA, USA, Mexico, Canada, or anywhere else.
-    const normalHardEndMs = 2 * 60 * 60 * 1000 + 45 * 60 * 1000; // 2h 45m
-    const knockoutHardEndMs = 4 * 60 * 60 * 1000; // ET + penalties + delay buffer
-    const hardEndMs = isKnockout ? knockoutHardEndMs : normalHardEndMs;
-    const hardPastEnd = start !== null && now > start + hardEndMs;
-    const beforeKickoff = start !== null && now < start;
-
     if (explicitPostponed) return "postponed";
     if (explicitFinished) return "finished";
 
-    // If an API response says LIVE but the absolute match window has clearly passed,
-    // do not keep the UI glowing live. Mark it finished if we have a score/winner;
-    // otherwise mark it pending so the user knows we are waiting for API confirmation.
-    if (hardPastEnd && (explicitLive || explicitHalf)) {
-      return hasScoreOrWinner(match) ? "finished" : "awaiting";
+    // The API wins for finished/postponed states, but the clock wins for the live window.
+    // This is what makes the state identical in KSA, USA, Canada, Mexico, or anywhere else:
+    // every browser compares Date.now() to the same absolute kickoff instant.
+    if (clock.phase === "upcoming") return "upcoming";
+    if (clock.phase === "halftime") return "halftime";
+    if (clock.phase === "live") return "live";
+    if (clock.phase === "finished-window") return hasScoreOrWinner(match) ? "finished" : "awaiting";
+
+    if (explicitHalf) return "halftime";
+    if (explicitLive) return "live";
+    if (!clock.kickoff) return apiStatus || "upcoming";
+    return hasScoreOrWinner(match) ? "finished" : "awaiting";
+  }
+
+  function matchClockState(match) {
+    const kickoff = parseMatchDate(match?.kickoff);
+    if (!kickoff) return { phase: "unknown", kickoff: null, elapsed: null };
+
+    const now = Date.now();
+    const start = kickoff.getTime();
+    const elapsedMs = now - start;
+    const stage = String(match?.stage || "").toLowerCase();
+    const isKnockout = /(round of|quarter|semi|third|final)/.test(stage);
+
+    if (elapsedMs < 0) return { phase: "upcoming", kickoff, elapsed: null };
+
+    const minute = Math.max(1, Math.floor(elapsedMs / 60000) + 1);
+    const firstHalfEnd = 45;
+    const halftimeEnd = 60;
+    const secondHalfEnd = 120; // includes stoppage, hydration breaks and VAR buffer
+    const knockoutHardEnd = 240; // extra time + penalties + delay buffer
+    const hardEnd = isKnockout ? knockoutHardEnd : secondHalfEnd;
+
+    if (minute <= firstHalfEnd) return { phase: "live", kickoff, elapsed: minute };
+    if (minute <= halftimeEnd) return { phase: "halftime", kickoff, elapsed: 45 };
+    if (minute <= hardEnd) {
+      const matchMinute = Math.min(90, 45 + Math.max(1, minute - halftimeEnd));
+      return { phase: "live", kickoff, elapsed: matchMinute };
     }
-
-    if (explicitHalf) return hardPastEnd ? (hasScoreOrWinner(match) ? "finished" : "awaiting") : "halftime";
-    if (explicitLive) return beforeKickoff ? "upcoming" : "live";
-
-    if (!kickoff) return apiStatus || "upcoming";
-    if (beforeKickoff) return "upcoming";
-
-    // No explicit live API status: do NOT invent LIVE from the clock.
-    // This avoids wrong states when the free API/cache is delayed.
-    if (hardPastEnd) return hasScoreOrWinner(match) ? "finished" : "awaiting";
-    return "awaiting";
+    return { phase: "finished-window", kickoff, elapsed: null };
   }
 
   function hasScoreOrWinner(match) {
@@ -1143,10 +1179,12 @@
     const status = matchComputedStatus(match);
     if (["live", "halftime"].includes(status)) {
       if (match?.elapsed) return `${status === "halftime" ? "HT" : "LIVE"} ${match.elapsed}'`;
+      const clock = matchClockState(match);
+      if (clock.elapsed) return `${status === "halftime" ? "HT" : "LIVE"} ${clock.elapsed}'`;
       return status === "halftime" ? "HT" : "LIVE";
     }
     if (status === "finished") return "FT";
-    if (status === "awaiting") return "Result pending";
+    if (status === "awaiting") return hasScoreOrWinner(match) ? "FT" : "Awaiting result";
     if (status === "postponed") return match?.statusLabel || "Postponed";
     return match?.statusLabel || "Scheduled";
   }
@@ -1180,7 +1218,21 @@
   }
 
   function normalizeTeamName(value) {
-    return normalizeText(value).replace(/^usa$/i, "united states").replace(/^u\.s\.a\.$/i, "united states");
+    const text = normalizeText(value)
+      .replace(/^usa$/i, "united states")
+      .replace(/^u\.s\.a\.$/i, "united states");
+    const aliases = {
+      "south korea": "korea republic",
+      "korea republic": "korea republic",
+      "czech republic": "czechia",
+      "czechia": "czechia",
+      "turkey": "turkiye",
+      "turkiye": "turkiye",
+      "bosnia herzogovina": "bosnia and herzegovina",
+      "bosnia herzegovina": "bosnia and herzegovina",
+      "bosnia and herzegovina": "bosnia and herzegovina"
+    };
+    return aliases[text] || text;
   }
 
   function normalizeText(value) {

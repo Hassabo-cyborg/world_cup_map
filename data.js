@@ -5,7 +5,7 @@ window.WC_DATA = {
     "defaultTheme": "dark",
     "version": "realmap-v10-6-free-provider",
     "source": "Updated uploaded World Cup 2026 DB/CSV dataset with football-data.org/OpenFootball free provider overlay",
-    "liveRefreshMs": 1200000
+    "liveRefreshMs": 300000
   },
   "stadiums": [
     {
