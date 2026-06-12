@@ -39,6 +39,7 @@
     motionOk: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     activeBracketMatch: null,
     focusMatchNumber: null,
+    cardAnchorId: null,
     live: {
       enabled: true,
       loading: false,
@@ -74,6 +75,7 @@
     els.map = document.getElementById("map");
     els.hoverCard = document.getElementById("hoverCard");
     els.detailCard = document.getElementById("detailCard");
+    els.cardTether = document.getElementById("cardTether");
     els.filterPanel = document.getElementById("filterPanel");
     els.matchesView = document.getElementById("matchesView");
     els.bracketView = document.getElementById("bracketView");
@@ -204,6 +206,14 @@
     state.map.on("click", (event) => {
       const features = state.map.queryRenderedFeatures(event.point, { layers: ["stadiums-hit"] });
       if (!features.length) closeAllCards();
+    });
+
+    ["move", "zoom", "resize"].forEach((eventName) => {
+      state.map.on(eventName, () => {
+        if (state.selectedId && !els.detailCard.classList.contains("hidden")) {
+          positionDetailAtStadium(state.selectedId);
+        }
+      });
     });
   }
 
@@ -416,29 +426,42 @@
     const next = getNextMatch(stadium.id);
     const stadiumMatches = getStadiumMatches(stadium.id);
     state.focusMatchNumber = focusMatchNumber;
+    state.cardAnchorId = stadium.id;
     els.detailCard.innerHTML = cardHTML(stadium, next, true, stadiumMatches, focusMatchNumber);
     els.detailCard.classList.remove("hidden");
+    els.detailCard.classList.add("tethered");
     els.detailCard.scrollTop = 0;
     const detailScroll = els.detailCard.querySelector(".detail-scroll");
     if (detailScroll) detailScroll.scrollTop = 0;
     els.detailCard.querySelector(".card-close")?.addEventListener("click", closeAllCards);
-    positionCard(els.detailCard, x + 18, y + 18);
+    requestAnimationFrame(() => positionDetailAtStadium(stadium.id, x, y));
     els.mapHint.textContent = `${stadium.city} selected`;
   }
 
-  function positionDetailAtStadium(id) {
+  function positionDetailAtStadium(id, fallbackX = null, fallbackY = null) {
     const stadium = getStadium(id);
-    if (!stadium || !state.map) return;
+    if (!stadium || !state.map || els.detailCard.classList.contains("hidden")) return;
+
+    if (window.innerWidth < 760) {
+      // Mobile uses a consistent bottom sheet. The selected stadium point remains highlighted
+      // and the map is offset so the location stays visible above the sheet.
+      hideTether();
+      els.detailCard.style.left = "";
+      els.detailCard.style.top = "";
+      els.detailCard.style.right = "";
+      els.detailCard.style.bottom = "";
+      return;
+    }
+
     const point = state.map.project([stadium.lng, stadium.lat]);
-    const rect = els.mapStage.getBoundingClientRect();
-    positionCard(els.detailCard, rect.left + point.x + 18, rect.top + point.y + 18);
+    positionCardTethered(els.detailCard, point.x, point.y, fallbackX, fallbackY);
   }
 
   function positionCard(card, clientX, clientY) {
     if (window.innerWidth < 760 && card === els.detailCard) return;
     const stageRect = els.mapStage.getBoundingClientRect();
-    const width = card.offsetWidth || 380;
-    const height = Math.min(card.offsetHeight || 360, window.innerHeight - 40);
+    const width = card.offsetWidth || 390;
+    const height = Math.min(card.offsetHeight || 360, stageRect.height - 40);
     const margin = 16;
     let x = clientX - stageRect.left;
     let y = clientY - stageRect.top;
@@ -452,6 +475,58 @@
     card.style.top = `${Math.round(y)}px`;
     card.style.right = "auto";
     card.style.bottom = "auto";
+  }
+
+  function positionCardTethered(card, pointX, pointY, fallbackX = null, fallbackY = null) {
+    const stageRect = els.mapStage.getBoundingClientRect();
+    const width = card.offsetWidth || 390;
+    const height = Math.min(card.offsetHeight || 520, stageRect.height - 48);
+    const margin = 18;
+    const gap = 28;
+
+    let x = pointX + gap;
+    let side = "right";
+    if (x + width + margin > stageRect.width) {
+      x = pointX - width - gap;
+      side = "left";
+    }
+    if (x < margin) {
+      x = Math.max(margin, Math.min(stageRect.width - width - margin, pointX + gap));
+      side = x > pointX ? "right" : "left";
+    }
+
+    let y = pointY - Math.min(height * 0.42, 220);
+    if (fallbackY !== null && Number.isFinite(fallbackY)) {
+      y = Math.min(y, fallbackY - stageRect.top);
+    }
+    if (y + height + margin > stageRect.height) y = stageRect.height - height - margin;
+    if (y < margin) y = margin;
+
+    card.style.left = `${Math.round(x)}px`;
+    card.style.top = `${Math.round(y)}px`;
+    card.style.right = "auto";
+    card.style.bottom = "auto";
+
+    const edgeX = side === "right" ? x : x + width;
+    const edgeY = clamp(pointY, y + 34, y + Math.min(height - 34, height * 0.72));
+    updateTether(pointX, pointY, edgeX, edgeY);
+  }
+
+  function updateTether(x1, y1, x2, y2) {
+    if (!els.cardTether || window.innerWidth < 760) return hideTether();
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.hypot(dx, dy);
+    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    els.cardTether.classList.remove("hidden");
+    els.cardTether.style.left = `${Math.round(x1)}px`;
+    els.cardTether.style.top = `${Math.round(y1)}px`;
+    els.cardTether.style.width = `${Math.max(18, Math.round(length))}px`;
+    els.cardTether.style.transform = `rotate(${angle}deg)`;
+  }
+
+  function hideTether() {
+    els.cardTether?.classList.add("hidden");
   }
 
   function cardHTML(stadium, next, detail, stadiumMatches = [], focusMatchNumber = null) {
@@ -569,6 +644,11 @@
   }
 
   function onBracketClick(event) {
+    const focusButton = event.target.closest("[data-focus-match]");
+    if (focusButton) {
+      openMatchOnMap(Number(focusButton.dataset.focusMatch));
+      return;
+    }
     const stageButton = event.target.closest("[data-bracket-stage]");
     if (stageButton) {
       state.activeBracketStage = stageButton.dataset.bracketStage;
@@ -611,10 +691,10 @@
     window.setTimeout(() => {
       const point = state.map?.project([stadium.lng, stadium.lat]);
       const rect = els.mapStage.getBoundingClientRect();
-      const x = point ? rect.left + point.x + 18 : window.innerWidth * 0.52;
-      const y = point ? rect.top + point.y + 18 : window.innerHeight * 0.28;
+      const x = point ? rect.left + point.x : window.innerWidth * 0.52;
+      const y = point ? rect.top + point.y : window.innerHeight * 0.28;
       openDetailCard(stadium, x, y, matchNumber);
-    }, state.motionOk ? 360 : 0);
+    }, state.motionOk ? 520 : 0);
   }
 
   function flyToStadium(stadium, options = {}) {
@@ -622,11 +702,12 @@
     const currentZoom = state.map.getZoom();
     const mobile = window.innerWidth < 760;
     const targetZoom = options.source === "match"
-      ? (mobile ? 1.25 : 1.55)
-      : Math.min(Math.max(currentZoom, mobile ? 0.85 : 1.0), mobile ? 1.15 : 1.35);
+      ? (mobile ? 1.55 : 1.75)
+      : Math.min(Math.max(currentZoom, mobile ? 1.05 : 1.15), mobile ? 1.4 : 1.55);
     state.map.flyTo({
       center: [stadium.lng, stadium.lat],
       zoom: targetZoom,
+      offset: mobile ? [0, -135] : [0, 0],
       duration: state.motionOk ? 850 : 0,
       essential: true
     });
@@ -638,9 +719,12 @@
 
   function closeAllCards() {
     hideHoverCard();
+    hideTether();
     els.detailCard.classList.add("hidden");
+    els.detailCard.classList.remove("tethered");
     els.mapHint.textContent = "Hover a stadium point";
     state.focusMatchNumber = null;
+    state.cardAnchorId = null;
     setSelectedFeature(null);
   }
 
@@ -1115,50 +1199,90 @@
     const knockoutStages = stages
       .filter((stage) => stage.order > 1)
       .sort((a, b) => a.order - b.order);
-    const byStage = groupBy(matches.filter((m) => m.stageOrder > 1), (m) => m.stage);
-    const firstStage = state.activeBracketStage || knockoutStages[0]?.name || "Round of 32";
-    const nextKnockout = matches.filter((m) => m.stageOrder > 1).sort(compareMatchesChronological)[0];
+    const stageNames = knockoutStages.map((stage) => stage.name);
+    const firstStage = state.activeBracketStage || stageNames[0] || "Round of 32";
+    const selectedStage = stageNames.includes(firstStage) ? firstStage : stageNames[0];
+    state.activeBracketStage = selectedStage;
+    const stageMatches = matches
+      .filter((match) => match.stageOrder > 1 && match.stage === selectedStage)
+      .sort(compareMatchesChronological);
+    let activeMatch = state.activeBracketMatch ? getMatch(state.activeBracketMatch) : null;
+    if (!activeMatch || activeMatch.stage !== selectedStage) {
+      activeMatch = stageMatches[0] || null;
+      state.activeBracketMatch = activeMatch ? activeMatch.matchNumber : null;
+    }
 
     els.bracketView.innerHTML = `
       <div class="view-title bracket-title">
         <div><span class="eyebrow">Knockout path</span><h2>Bracket</h2></div>
-        <p>Interactive · chronological by kickoff</p>
+        <p>Round tabs · clickable match cards · map-linked venues</p>
       </div>
-      <div class="bracket-tabs" role="tablist" aria-label="Bracket rounds">
-        ${knockoutStages.map((stage) => `<button type="button" class="${stage.name === firstStage ? "active" : ""}" data-bracket-stage="${escapeHTML(stage.name)}">${escapeHTML(stage.name)}</button>`).join("")}
+      <div class="bracket-tabs pro-tabs" role="tablist" aria-label="Bracket rounds">
+        ${knockoutStages.map((stage) => `<button type="button" class="${stage.name === selectedStage ? "active" : ""}" data-bracket-stage="${escapeHTML(stage.name)}">${escapeHTML(shortStageName(stage.name))}</button>`).join("")}
       </div>
-      ${nextKnockout ? `<div class="bracket-note">
-        <strong>First knockout match:</strong> M${nextKnockout.matchNumber} · ${matchTeams(nextKnockout)} · ${formatDate(nextKnockout.kickoff)}
-      </div>` : ""}
-      <div class="bracket-shell">
-        <div class="bracket-grid espn-style">
-          ${knockoutStages.map((stage) => {
-            const stageMatches = (byStage.get(stage.name) || []).slice().sort(compareMatchesChronological);
-            return `<section class="bracket-col" data-stage-col="${escapeHTML(stage.name)}">
-              <h3>${escapeHTML(stage.name)}</h3>
-              ${stageMatches.map((match) => bracketNodeHTML(match)).join("")}
-            </section>`;
-          }).join("")}
-        </div>
-        <aside class="bracket-detail ${state.activeBracketMatch ? "" : "muted-detail"}" id="bracketDetail">
-          ${state.activeBracketMatch ? bracketDetailHTML(getMatch(state.activeBracketMatch)) : `<span class="eyebrow">How to read</span><h3>Click any bracket card</h3><p>Codes like <b>1L</b>, <b>3EHIJK</b>, and <b>W79</b> are placeholders until the group stage and knockout winners are known.</p>`}
+      <div class="bracket-pro-shell">
+        <section class="bracket-round-board" aria-label="${escapeHTML(selectedStage)} matches">
+          <div class="round-head">
+            <div><span class="eyebrow">${escapeHTML(selectedStage)}</span><h3>${stageMatches.length} matches</h3></div>
+            <span>${stageMatches[0] ? formatDayTitle(dayKey(stageMatches[0].kickoff)) : "Dates TBC"}</span>
+          </div>
+          <div class="pro-bracket-list">
+            ${stageMatches.map((match) => bracketNodeHTML(match)).join("") || `<div class="empty-state">No bracket matches in this round.</div>`}
+          </div>
+        </section>
+        <aside class="bracket-detail pro-detail ${state.activeBracketMatch ? "" : "muted-detail"}" id="bracketDetail">
+          ${activeMatch ? bracketDetailHTML(activeMatch) : `<span class="eyebrow">How to read</span><h3>Click any bracket card</h3><p>Codes like <b>1L</b>, <b>3EHIJK</b>, and <b>W79</b> are placeholders until the group stage and knockout winners are known.</p>`}
         </aside>
       </div>`;
-
-    requestAnimationFrame(() => {
-      const active = els.bracketView.querySelector(`[data-stage-col="${cssEscape(firstStage)}"]`);
-      active?.scrollIntoView({ behavior: state.motionOk ? "smooth" : "auto", block: "nearest", inline: "start" });
-    });
   }
 
   function bracketNodeHTML(match) {
-    const active = state.activeBracketMatch === match.matchNumber;
-    return `<article class="bracket-node ${match.stage === "Final" ? "final" : ""} ${active ? "selected" : ""}" data-match="${match.matchNumber}" tabindex="0" role="button" aria-label="Open match ${match.matchNumber}">
-      <div class="node-top"><span>M${match.matchNumber}</span><span>${formatShortDate(match.kickoff)}</span></div>
-      <div class="node-teams">${matchTeams(match)} ${matchScoreHTML(match)}</div>
-      <div class="node-code">${matchStatusHTML(match)} ${escapeHTML(match.label || match.display || "Teams TBC")}</div>
-      <div class="node-meta">${escapeHTML(getStadium(match.stadiumId)?.city || "City TBC")} · ${formatTime(match.kickoff)}</div>
+    const active = Number(state.activeBracketMatch) === Number(match.matchNumber);
+    const stadium = getStadium(match.stadiumId);
+    const participants = participantRowsHTML(match);
+    return `<article class="pro-bracket-card ${match.stage === "Final" ? "final" : ""} ${active ? "selected" : ""}" data-match="${escapeHTML(match.matchNumber)}" tabindex="0" role="button" aria-label="Open match ${escapeHTML(match.matchNumber)}">
+      <div class="pro-node-top"><span>M${match.matchNumber}</span><span>${matchStatusHTML(match)}</span></div>
+      <div class="bracket-teams-table">${participants}</div>
+      ${match.label && !match.homeTeam && !match.awayTeam ? `<div class="node-code">${explainMatchLabel(match.label || match.display || "")}</div>` : ""}
+      <div class="pro-node-meta"><span>${formatShortDate(match.kickoff)} · ${formatTime(match.kickoff)}</span><span>${escapeHTML(stadium?.city || "City TBC")}</span></div>
     </article>`;
+  }
+
+  function participantRowsHTML(match) {
+    if (match?.homeTeam && match?.awayTeam) {
+      return [teamRowHTML(match.homeTeam, match.goalsHome, isWinner(match, "home")), teamRowHTML(match.awayTeam, match.goalsAway, isWinner(match, "away"))].join("");
+    }
+    const parts = splitMatchLabel(match?.label || match?.display || "Teams TBC");
+    if (parts.length === 2) {
+      return parts.map((part) => {
+        const parsed = parseParticipantToken(part);
+        return `<div class="bracket-team-row placeholder"><span class="code-badge">${escapeHTML(parsed.code)}</span><strong>${escapeHTML(parsed.short)}</strong><span class="bracket-score blank">—</span></div>`;
+      }).join("");
+    }
+    return `<div class="bracket-team-row placeholder"><strong>${escapeHTML(match?.label || match?.display || "Teams TBC")}</strong><span class="bracket-score blank">—</span></div>`;
+  }
+
+  function teamRowHTML(team, score, winner) {
+    const scoreText = score === null || score === undefined ? "—" : String(score);
+    return `<div class="bracket-team-row ${winner ? "winner" : ""}">${teamHTML(team)}<span class="bracket-score">${escapeHTML(scoreText)}</span></div>`;
+  }
+
+  function isWinner(match, side) {
+    if (!isFinished(match)) return false;
+    const home = Number(match.goalsHome);
+    const away = Number(match.goalsAway);
+    if (!Number.isFinite(home) || !Number.isFinite(away) || home === away) return false;
+    return side === "home" ? home > away : away > home;
+  }
+
+  function shortStageName(name) {
+    return String(name || "")
+      .replace("Round of 32", "R32")
+      .replace("Round of 16", "R16")
+      .replace("Quarterfinals", "QF")
+      .replace("Semifinals", "SF")
+      .replace("Third Place Playoff", "3rd")
+      .replace("Final", "Final");
   }
 
   function bracketDetailHTML(match) {
@@ -1168,15 +1292,15 @@
     const next = getNextBracketMatch(match.matchNumber);
     return `<span class="eyebrow">Selected match</span>
       <h3>M${match.matchNumber} · ${escapeHTML(match.stage)}</h3>
-      <div class="detail-fixture">${matchTeams(match)} ${matchScoreHTML(match)}</div>
-      <p>${matchStatusHTML(match)}</p>
-      <p>${explainMatchLabel(match.label || match.display || "")}</p>
+      <div class="detail-fixture pro-fixture">${participantRowsHTML(match)}</div>
+      <p>${matchStatusHTML(match)} ${formatDate(match.kickoff)}</p>
+      ${match.label && !match.homeTeam && !match.awayTeam ? `<p>${explainMatchLabel(match.label || match.display || "")}</p>` : ""}
       <div class="detail-meta-grid">
-        <div><small>Date</small><strong>${formatDate(match.kickoff)}</strong></div>
         <div><small>Venue</small><strong>${escapeHTML(stadium?.venue || "TBC")}</strong></div>
-        <div><small>City</small><strong>${escapeHTML(stadium?.city || "TBC")}</strong></div>
+        <div><small>Location</small><strong>${escapeHTML(stadium?.city || "TBC")}${stadium?.country ? ` · ${escapeHTML(stadium.country)}` : ""}</strong></div>
         <div><small>Path</small><strong>${next ? `Winner goes to M${next.matchNumber}` : match.stage === "Final" ? "Champion decided" : "TBC"}</strong></div>
       </div>
+      <button type="button" class="show-on-map bracket-map-btn" data-focus-match="${escapeHTML(match.matchNumber)}">Show on map</button>
       ${feeds.length ? `<div class="feeders"><small>Feeds from</small>${feeds.map((m) => `<button type="button" data-match="${m.matchNumber}">M${m.matchNumber}</button>`).join("")}</div>` : ""}`;
   }
 
@@ -1253,12 +1377,12 @@
   function fitHostBounds(animate) {
     if (!state.map) return;
     const mobile = window.innerWidth < 760;
-    // Keep the whole North American host context visible on load/reset.
-    state.map.easeTo({
-      center: mobile ? [-104, 45] : [-103, 44],
-      zoom: mobile ? 0.16 : 0.42,
-      bearing: 0,
-      pitch: 0,
+    // Always show the full North America host context on load/reset.
+    state.map.fitBounds([[-170, 5], [-45, 74]], {
+      padding: mobile
+        ? { top: 116, right: 22, bottom: 96, left: 22 }
+        : { top: 120, right: 70, bottom: 64, left: 70 },
+      maxZoom: mobile ? 1.15 : 1.85,
       duration: animate && state.motionOk ? 900 : 0,
       essential: true
     });
@@ -1277,6 +1401,10 @@
     if (status === "knockout") return "#d8b35f";
     if (status === "finished") return els.html.dataset.theme === "light" ? "#6b6f66" : "#8d8a7e";
     return countryColor(stadium.country);
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
   }
 
   function formatNumber(value) {
