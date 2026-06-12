@@ -53,6 +53,10 @@
       timer: null,
       clockTimer: null,
       error: ""
+    },
+    clock: {
+      serverNowMs: null,
+      clientSyncedAtMs: null
     }
   };
 
@@ -887,10 +891,11 @@
     fetchLiveFixtures({ force: false });
 
     // Network refresh: protected by the Vercel/backend cache.
-    // Local clock refresh: updates LIVE / HT / FT state without spending API requests.
+    // Local clock refresh: status must update even when the data provider is delayed.
     const intervalMs = DATA.meta?.liveRefreshMs || 5 * 60 * 1000;
     state.live.timer = window.setInterval(() => fetchLiveFixtures({ force: false }), intervalMs);
-    state.live.clockTimer = window.setInterval(refreshClockSensitiveUI, 30 * 1000);
+    state.live.clockTimer = window.setInterval(refreshClockSensitiveUI, 5 * 1000);
+    window.setTimeout(refreshClockSensitiveUI, 250);
   }
 
   function refreshClockSensitiveUI() {
@@ -915,8 +920,10 @@
       const url = `/api/worldcup?resource=fixtures${force ? "&fresh=1" : ""}`;
       const response = await fetch(url, { headers: { "Accept": "application/json" } });
       const json = await response.json().catch(() => ({}));
+      syncClockFromServer(json.fetchedAt || response.headers.get("date"));
       if (!response.ok || json.ok === false) {
-        throw new Error(json.message || json.error || `Live API failed (${response.status})`);
+        state.live.error = json.message || json.error || `Live API failed (${response.status})`;
+        throw new Error(state.live.error);
       }
       const payload = json.payload || json;
       const apiError = extractApiError(payload) || json.message || "";
@@ -1089,6 +1096,29 @@
       els.liveStatus.dataset.state = "loading";
       return;
     }
+
+    const liveNow = matches.filter(isLive);
+    if (liveNow.length) {
+      const first = liveNow[0];
+      els.liveStatus.textContent = `LIVE NOW · M${first.matchNumber}`;
+      els.liveStatus.title = `${matchTeams(first)} is live. Time is computed from one absolute kickoff instant, synced against the server clock when available.`;
+      els.liveStatus.dataset.state = "live";
+      return;
+    }
+
+    const next = matches
+      .filter((match) => matchComputedStatus(match) === "upcoming")
+      .sort(compareMatchesChronological)[0];
+    if (next) {
+      const mins = minutesUntilKickoff(next);
+      if (mins !== null && mins <= 180) {
+        els.liveStatus.textContent = mins <= 0 ? `LIVE NOW · M${next.matchNumber}` : `Next in ${formatCountdown(mins)}`;
+        els.liveStatus.title = `Next: M${next.matchNumber} · ${matchTeams(next)} · ${formatDate(next.kickoff)}`;
+        els.liveStatus.dataset.state = mins <= 0 ? "live" : "loading";
+        return;
+      }
+    }
+
     if (state.live.ok) {
       const remaining = state.live.quota?.remaining ?? state.live.quota?.requestsRemaining ?? state.live.quota?.minuteRemaining ?? null;
       const provider = state.live.providerName || "Free data";
@@ -1098,10 +1128,39 @@
       els.liveStatus.dataset.state = "live";
     } else {
       const blocked = /free plans do not have access|no 2026 fixtures|no fixtures|restricted|forbidden/i.test(state.live.error || "");
-      els.liveStatus.textContent = blocked ? "Static · API locked" : "Static mode";
-      els.liveStatus.title = state.live.error || "Static dataset shown until live API data is available.";
+      els.liveStatus.textContent = blocked ? "Static · API locked" : "Clock-synced schedule";
+      els.liveStatus.title = state.live.error || "Static schedule shown; live/upcoming/FT status is still computed from absolute kickoff times.";
       els.liveStatus.dataset.state = "static";
     }
+  }
+
+
+  function syncClockFromServer(value) {
+    const date = parseMatchDate(value);
+    if (!date) return;
+    state.clock.serverNowMs = date.getTime();
+    state.clock.clientSyncedAtMs = Date.now();
+  }
+
+  function currentNowMs() {
+    if (state.clock.serverNowMs && state.clock.clientSyncedAtMs) {
+      return state.clock.serverNowMs + (Date.now() - state.clock.clientSyncedAtMs);
+    }
+    return Date.now();
+  }
+
+  function minutesUntilKickoff(match) {
+    const kickoff = parseMatchDate(match?.kickoff);
+    if (!kickoff) return null;
+    return Math.ceil((kickoff.getTime() - currentNowMs()) / 60000);
+  }
+
+  function formatCountdown(minutes) {
+    const safe = Math.max(0, Number(minutes) || 0);
+    if (safe < 60) return `${safe}m`;
+    const h = Math.floor(safe / 60);
+    const m = safe % 60;
+    return m ? `${h}h ${m}m` : `${h}h`;
   }
 
   function formatLiveUpdated(value) {
@@ -1147,7 +1206,7 @@
     const kickoff = parseMatchDate(match?.kickoff);
     if (!kickoff) return { phase: "unknown", kickoff: null, elapsed: null };
 
-    const now = Date.now();
+    const now = currentNowMs();
     const start = kickoff.getTime();
     const elapsedMs = now - start;
     const stage = String(match?.stage || "").toLowerCase();
@@ -1616,12 +1675,44 @@
     if (!value) return "";
     return String(value)
       .trim()
-      .replace(" ", "T")
+      .replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})/, "$1T$2")
+      .replace(/UTC\s*([+-]\d{1,2})$/i, (_, offset) => `${Number(offset) >= 0 ? "+" : "-"}${String(Math.abs(Number(offset))).padStart(2, "0")}:00`)
+      .replace(/([+-]\d{2})(\d{2})$/, "$1:$2")
       .replace(/([+-]\d{2})$/, "$1:00");
   }
 
   function parseMatchDate(value) {
     if (!value) return null;
+    const raw = String(value).trim();
+    const manual = raw.match(/^(\d{4})-(\d{2})-(\d{2})[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(Z|[+-]\d{2}:?\d{0,2}|UTC\s*[+-]\d{1,2}))?$/i);
+    if (manual) {
+      const [, y, mo, d, h, mi, sec = "00", zone = ""] = manual;
+      let utcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(sec));
+      if (zone && zone.toUpperCase() !== "Z") {
+        const z = zone.toUpperCase().replace("UTC", "").replace(/\s+/g, "");
+        const sign = z.startsWith("-") ? -1 : 1;
+        const clean = z.replace(/^[+-]/, "");
+        let zh = 0;
+        let zm = 0;
+        if (clean.includes(":")) {
+          const parts = clean.split(":");
+          zh = Number(parts[0] || 0);
+          zm = Number(parts[1] || 0);
+        } else if (clean.length > 2) {
+          zh = Number(clean.slice(0, 2));
+          zm = Number(clean.slice(2) || 0);
+        } else {
+          zh = Number(clean || 0);
+        }
+        utcMs -= sign * ((zh * 60 + zm) * 60000);
+      } else if (!zone) {
+        // When no offset exists, fall back to the browser parser as local time.
+        const local = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(sec));
+        if (!Number.isNaN(local.getTime())) return local;
+      }
+      const parsed = new Date(utcMs);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
     const normalized = normalizeDateInput(value);
     const date = new Date(normalized);
     if (!Number.isNaN(date.getTime())) return date;
