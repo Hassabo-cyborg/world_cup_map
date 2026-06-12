@@ -801,3 +801,200 @@ html[data-theme="light"] .bracket-team-row { background: rgba(255,255,255,.36); 
   .pro-detail { position: relative; order: -1; padding: 14px; }
   .bracket-score { font-size: 20px; }
 }
+
+/* V10.9 mobile app feel + secondary travel context */
+.travel-secondary {
+  margin: 12px 0 6px;
+  border: 1px solid rgba(216,179,95,.24);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(216,179,95,.07), rgba(45,226,255,.035));
+  overflow: hidden;
+}
+.travel-secondary summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 1000;
+  letter-spacing: .03em;
+}
+.travel-secondary summary::-webkit-details-marker { display: none; }
+.travel-secondary summary::after {
+  content: "+";
+  color: var(--gold);
+  font-size: 18px;
+  line-height: 1;
+}
+.travel-secondary[open] summary::after { content: "−"; }
+.travel-secondary summary small {
+  color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  font-size: 9px;
+  font-weight: 1000;
+}
+.travel-grid { display: grid; gap: 8px; padding: 0 12px 12px; }
+.travel-leg {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px;
+  background: rgba(0,0,0,.11);
+}
+html[data-theme="light"] .travel-leg { background: rgba(255,255,255,.38); }
+.travel-leg small {
+  display: block;
+  color: var(--gold);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  font-weight: 1000;
+  margin-bottom: 5px;
+}
+.travel-leg strong { display: block; color: var(--text); font-size: 13px; margin-bottom: 4px; }
+.travel-leg span { display: block; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.travel-secondary p { margin: 0; padding: 0 12px 12px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+
+/* Restore the nicer phone-app behavior while keeping the V10.8 core priority. */
+@media (max-width: 760px) {
+  body { overscroll-behavior: none; }
+  .topbar {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    border-radius: 22px;
+    padding: 8px;
+  }
+  .brand strong { font-size: 12px; }
+  .brand span { font-size: 9px; }
+  .top-actions { gap: 5px; }
+  .top-actions button,
+  .top-actions .live-status { min-height: 34px; }
+  .mobile-tabs {
+    border-radius: 24px;
+    padding: 6px;
+    box-shadow: 0 18px 54px rgba(0,0,0,.42);
+  }
+  .mobile-tabs button {
+    border-radius: 18px;
+    min-height: 44px;
+  }
+
+  /* Keep the bottom sheet like a native mobile panel. */
+  .detail-card {
+    left: 8px !important;
+    right: 8px !important;
+    top: auto !important;
+    bottom: calc(74px + env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    height: min(82svh, 720px) !important;
+    max-height: min(82svh, 720px) !important;
+    border-radius: 28px 28px 24px 24px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    transform-origin: bottom center !important;
+  }
+  .detail-card::after {
+    content: "";
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    width: 44px;
+    height: 4px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: rgba(244,239,226,.32);
+    z-index: 2;
+  }
+  html[data-theme="light"] .detail-card::after { background: rgba(6,24,18,.24); }
+  .detail-card .venue-strip {
+    display: block !important;
+    height: 46px !important;
+    margin-top: 10px;
+    border-radius: 18px !important;
+    opacity: .78;
+  }
+  .detail-card .venue-strip::after { font-size: 30px !important; right: 10px; bottom: 3px; }
+  .detail-card .card-body { padding: 18px 14px 10px !important; }
+  .detail-card .card-title { font-size: 18px !important; line-height: 1.1; }
+  .detail-card .card-sub { font-size: 12px !important; }
+  .detail-card .stats {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 7px;
+    margin-top: 10px;
+  }
+  .detail-card .stat { padding: 8px 6px; border-radius: 14px; }
+  .detail-card .stat b { font-size: 13px; }
+  .detail-card .stat span { font-size: 8px; }
+  .detail-card .next-match { margin-top: 10px; padding: 11px !important; border-radius: 18px; }
+  .detail-card .next-match strong { font-size: 14px !important; line-height: 1.55; }
+  .detail-card .next-match .score-pill { font-size: 22px !important; padding: 8px 13px; }
+  .detail-card .detail-scroll {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior: contain !important;
+    padding: 0 14px calc(26px + env(safe-area-inset-bottom)) !important;
+  }
+  .match-row {
+    grid-template-columns: 46px minmax(0, 1fr) !important;
+    gap: 9px !important;
+    border-radius: 17px !important;
+    padding: 11px !important;
+  }
+  .match-row .match-teams { font-size: 13px !important; line-height: 1.5; }
+  .match-row .match-meta {
+    grid-column: 1 / -1;
+    text-align: left !important;
+    white-space: normal !important;
+    font-size: 11px !important;
+    line-height: 1.55;
+  }
+  .travel-secondary { margin-top: 12px; border-radius: 17px; }
+  .travel-secondary summary { padding: 13px; min-height: 46px; }
+
+  /* Matches tab behaves more like an app feed: clear, tappable, primary info first. */
+  .view-panel {
+    top: 76px !important;
+    left: 8px !important;
+    right: 8px !important;
+    bottom: calc(76px + env(safe-area-inset-bottom)) !important;
+    border-radius: 26px !important;
+    padding: 14px !important;
+    background: rgba(4,18,15,.94) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior: contain !important;
+  }
+  html[data-theme="light"] .view-panel { background: rgba(246,241,229,.97) !important; }
+  .view-title h2 { font-size: 38px !important; }
+  .day-label { border-radius: 16px; }
+  .match-card {
+    border-radius: 22px !important;
+    padding: 15px !important;
+    min-height: 0;
+  }
+  .match-card h3 { font-size: 15px !important; line-height: 1.55; }
+  .match-card.finished .match-score-line .score-pill { font-size: 32px !important; }
+  .show-on-map {
+    min-height: 44px;
+    font-size: 12px;
+  }
+
+  /* Secondary controls are available but visually secondary. */
+  .legend,
+  .map-hint { display: none !important; }
+  .map-controls {
+    display: grid !important;
+    right: 12px !important;
+    bottom: calc(84px + env(safe-area-inset-bottom)) !important;
+    opacity: .74;
+  }
+  .map-controls button { width: 38px; height: 38px; }
+}

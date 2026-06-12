@@ -40,6 +40,7 @@
     activeBracketMatch: null,
     focusMatchNumber: null,
     cardAnchorId: null,
+    travelRouteMatchNumber: null,
     live: {
       enabled: true,
       loading: false,
@@ -116,7 +117,10 @@
       els.html.dataset.theme = next;
       localStorage.setItem("wc-theme", next);
       if (state.map) state.map.setStyle(makeMapStyle(next));
-      state.map?.once("styledata", () => addMapLayers());
+      state.map?.once("styledata", () => {
+        addMapLayers();
+        if (state.selectedId) updateTravelRouteForSelection(getStadium(state.selectedId), state.focusMatchNumber ? getMatch(state.focusMatchNumber) : getNextMatch(state.selectedId));
+      });
     });
 
     document.getElementById("filterToggle")?.addEventListener("click", toggleFilters);
@@ -256,6 +260,7 @@
   function addMapLayers() {
     if (!state.map || !state.map.isStyleLoaded()) return;
     addRealBorders();
+    addTravelRouteLayer();
     addStadiumSourceAndLayers();
   }
 
@@ -299,6 +304,39 @@
     } catch (_) {
       // Border layer is decorative. The real map still works if the CDN is offline.
     }
+  }
+
+
+  function addTravelRouteLayer() {
+    if (!state.map || state.map.getSource("travel-route")) return;
+    state.map.addSource("travel-route", {
+      type: "geojson",
+      data: emptyFeatureCollection()
+    });
+    state.map.addLayer({
+      id: "travel-route-glow",
+      type: "line",
+      source: "travel-route",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": els.html.dataset.theme === "light" ? "#0068ff" : "#2de2ff",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 1, 1.8, 4, 4.4, 7, 7.5],
+        "line-opacity": 0.18,
+        "line-blur": 5
+      }
+    });
+    state.map.addLayer({
+      id: "travel-route-line",
+      type: "line",
+      source: "travel-route",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": els.html.dataset.theme === "light" ? "#0057d8" : "#d8b35f",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 1, 0.8, 4, 1.8, 7, 2.8],
+        "line-opacity": 0.62,
+        "line-dasharray": [1.3, 1.9]
+      }
+    });
   }
 
   function addStadiumSourceAndLayers() {
@@ -433,6 +471,7 @@
     els.detailCard.scrollTop = 0;
     const detailScroll = els.detailCard.querySelector(".detail-scroll");
     if (detailScroll) detailScroll.scrollTop = 0;
+    updateTravelRouteForSelection(stadium, focusMatchNumber ? getMatch(focusMatchNumber) : next);
     els.detailCard.querySelector(".card-close")?.addEventListener("click", closeAllCards);
     requestAnimationFrame(() => positionDetailAtStadium(stadium.id, x, y));
     els.mapHint.textContent = `${stadium.city} selected`;
@@ -555,7 +594,7 @@
           ${primary ? `<strong>${matchTeams(primary)} ${matchScoreHTML(primary)}</strong><span>${matchStatusHTML(primary)} ${formatDate(primary.kickoff)} · ${escapeHTML(primary.stage)}</span>` : `<strong>No match listed</strong><span>Dataset has no game for this venue</span>`}
         </div>
       </div>
-      ${detail ? `<div class="detail-scroll"><div class="match-list">${stadiumMatches.map((match) => matchRowHTML(match, focusMatchNumber)).join("")}</div></div>` : ""}
+      ${detail ? `<div class="detail-scroll"><div class="match-list">${stadiumMatches.map((match) => matchRowHTML(match, focusMatchNumber)).join("")}</div>${travelContextHTML(primary, stadium)}</div>` : ""}
     `;
   }
 
@@ -568,6 +607,87 @@
         <div class="match-meta">${matchStatusHTML(match)} ${matchScoreHTML(match)}<br>${escapeHTML(match.stage)}<br>${formatDate(match.kickoff)}</div>
       </article>
     `;
+  }
+
+
+  function travelContextHTML(match, currentStadium) {
+    if (!match || !currentStadium) return "";
+    const legs = getTravelLegs(match);
+    if (!legs.length) return "";
+    return `
+      <details class="travel-secondary">
+        <summary><span>Travel context</span><small>Secondary</small></summary>
+        <div class="travel-grid">
+          ${legs.map((leg) => `
+            <div class="travel-leg">
+              <small>${escapeHTML(leg.label)}</small>
+              <strong>${escapeHTML(leg.from.city)} → ${escapeHTML(leg.to.city)}</strong>
+              <span>${escapeHTML(formatDistance(leg.distanceKm))} · ${escapeHTML(leg.from.venue)} to ${escapeHTML(leg.to.venue)}</span>
+            </div>`).join("")}
+        </div>
+        <p>Distances are straight-line estimates between host stadiums. They are secondary route context, not official travel itineraries.</p>
+      </details>
+    `;
+  }
+
+  function getTravelLegs(match) {
+    const current = getStadium(match?.stadiumId);
+    if (!match || !current) return [];
+    const ordered = matches.slice().sort(compareMatchesChronological);
+    const index = ordered.findIndex((item) => Number(item.matchNumber) === Number(match.matchNumber));
+    if (index < 0) return [];
+    const prev = findNeighborMatch(ordered, index, -1);
+    const next = findNeighborMatch(ordered, index, 1);
+    const legs = [];
+    if (prev?.stadium) {
+      legs.push({ label: `Previous match M${prev.match.matchNumber}`, from: prev.stadium, to: current, distanceKm: haversineKm(prev.stadium, current) });
+    }
+    if (next?.stadium) {
+      legs.push({ label: `Next match M${next.match.matchNumber}`, from: current, to: next.stadium, distanceKm: haversineKm(current, next.stadium) });
+    }
+    return legs;
+  }
+
+  function findNeighborMatch(ordered, index, direction) {
+    for (let i = index + direction; i >= 0 && i < ordered.length; i += direction) {
+      const stadium = getStadium(ordered[i].stadiumId);
+      if (stadium) return { match: ordered[i], stadium };
+    }
+    return null;
+  }
+
+  function updateTravelRouteForSelection(stadium, match) {
+    state.travelRouteMatchNumber = match?.matchNumber || null;
+    if (!state.map?.getSource("travel-route") || !stadium || !match) return;
+    const legs = getTravelLegs(match);
+    if (!legs.length) {
+      state.map.getSource("travel-route").setData(emptyFeatureCollection());
+      return;
+    }
+    const coordinates = [];
+    legs.forEach((leg, index) => {
+      const start = [Number(leg.from.lng), Number(leg.from.lat)];
+      const end = [Number(leg.to.lng), Number(leg.to.lat)];
+      if (index === 0) coordinates.push(start);
+      const last = coordinates[coordinates.length - 1];
+      if (!last || last[0] !== start[0] || last[1] !== start[1]) coordinates.push(start);
+      coordinates.push(end);
+    });
+    state.map.getSource("travel-route").setData({
+      type: "FeatureCollection",
+      features: coordinates.length > 1 ? [{
+        type: "Feature",
+        properties: { matchNumber: match.matchNumber },
+        geometry: { type: "LineString", coordinates }
+      }] : []
+    });
+  }
+
+  function clearTravelRoute() {
+    state.travelRouteMatchNumber = null;
+    if (state.map?.getSource("travel-route")) {
+      state.map.getSource("travel-route").setData(emptyFeatureCollection());
+    }
   }
 
   function matchTeams(match) {
@@ -725,6 +845,7 @@
     els.mapHint.textContent = "Hover a stadium point";
     state.focusMatchNumber = null;
     state.cardAnchorId = null;
+    clearTravelRoute();
     setSelectedFeature(null);
   }
 
@@ -1401,6 +1522,33 @@
     if (status === "knockout") return "#d8b35f";
     if (status === "finished") return els.html.dataset.theme === "light" ? "#6b6f66" : "#8d8a7e";
     return countryColor(stadium.country);
+  }
+
+
+  function emptyFeatureCollection() {
+    return { type: "FeatureCollection", features: [] };
+  }
+
+  function haversineKm(a, b) {
+    const lat1 = Number(a?.lat);
+    const lon1 = Number(a?.lng);
+    const lat2 = Number(b?.lat);
+    const lon2 = Number(b?.lng);
+    if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return null;
+    const R = 6371;
+    const toRad = (value) => value * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const s1 = Math.sin(dLat / 2);
+    const s2 = Math.sin(dLon / 2);
+    const h = s1 * s1 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * s2 * s2;
+    return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  }
+
+  function formatDistance(km) {
+    if (!Number.isFinite(km)) return "Distance TBC";
+    const miles = km * 0.621371;
+    return `${Math.round(km).toLocaleString("en-US")} km / ${Math.round(miles).toLocaleString("en-US")} mi`;
   }
 
   function clamp(value, min, max) {
